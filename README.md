@@ -30,7 +30,7 @@
 | ☑ **Batch Selection** | Select all / none with one click; defaults to all-selected after scan |
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
 | 📋 **Console Log** | Live log of every operation with timestamps |
-| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc from drive F: |
+| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc from drive |
 | 💾 **Portable** | No installation required — run from any folder on any Windows PC |
 
 ---
