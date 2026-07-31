@@ -23,7 +23,7 @@ from datetime import datetime
 #  Constants & Colour Palette
 # ─────────────────────────────────────────────
 APP_NAME = "VCD Ripper Pro"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.2.0"
 
 COLORS = {
     "bg_dark":      "#0D0F14",
@@ -65,7 +65,7 @@ OUTPUT_FORMATS = {
     "DAT": {
         "ext": ".dat",
         "args": [],
-        "desc": "DAT raw direct copy — no re-encoding, no FFmpeg needed",
+        "desc": "Raw direct copy",
         "color": COLORS["dat_tag"],
     },
     "MPG": {
@@ -94,13 +94,13 @@ AUDIO_FORMATS = {
     "WAV": {
         "ext": ".wav",
         "args": ["-vn", "-acodec", "pcm_s16le", "-ar", "44100"],
-        "desc": "WAV — Lossless PCM audio (largest file size)",
+        "desc": "Lossless PCM audio",
         "color": COLORS["success"],
     },
     "MP3": {
         "ext": ".mp3",
         "args": ["-vn", "-acodec", "libmp3lame", "-q:a", "2"],
-        "desc": "MP3 — High-quality compressed audio (smallest size)",
+        "desc": "High quality compressed audio",
         "color": COLORS["warning"],
     },
 }
@@ -633,6 +633,8 @@ class VCDRipperApp(tk.Tk):
         self._audio_format     = tk.StringVar(value="WAV")     # "WAV" or "MP3"
         self._vcd_path         = tk.StringVar(value="")
         self._dat_rename_mp4   = tk.BooleanVar(value=True)   # DAT sub-option: rename to .mp4
+        self._use_1080p        = tk.BooleanVar(value=False)  # MP4/MOV resolution: False=original
+        self._auto_open_folder = tk.BooleanVar(value=True)   # Auto open folder after rip
         self._ripping          = False
         self._poll_job         = None
         self._sash_initialized = False
@@ -712,59 +714,82 @@ class VCDRipperApp(tk.Tk):
         top_frame = tk.Frame(self._paned, bg=COLORS["bg_dark"])
         bot_frame = tk.Frame(self._paned, bg=COLORS["bg_dark"])
         self._paned.add(top_frame, stretch="always", minsize=400)
-        self._paned.add(bot_frame, stretch="never", minsize=75)
+        self._paned.add(bot_frame, stretch="never", minsize=100)
 
-        # ── Left sidebar (controls) ──────────
-        sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=340)
-        sidebar.pack(side="left", fill="y")
-        sidebar.pack_propagate(False)
+        # ── Left sidebar (Source & Selection) ──
+        left_sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=280)
+        left_sidebar.pack(side="left", fill="y")
+        left_sidebar.pack_propagate(False)
+
+        left_scroll_area = tk.Frame(left_sidebar, bg=COLORS["bg_panel"])
+        left_scroll_area.pack(fill="both", expand=True)
+
+        left_canvas = tk.Canvas(left_scroll_area, bg=COLORS["bg_panel"], highlightthickness=0)
+        left_vsb = ttk.Scrollbar(left_scroll_area, orient="vertical", command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_vsb.set)
+        left_vsb.pack(side="right", fill="y")
+
+        left_content = tk.Frame(left_canvas, bg=COLORS["bg_panel"])
+        left_window = left_canvas.create_window((0, 0), window=left_content, anchor="nw")
+
+        left_content.bind("<Configure>", lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+        left_canvas.bind("<Configure>", lambda e: left_canvas.itemconfig(left_window, width=e.width))
+
+        def _on_left_mousewheel(event):
+            left_canvas.yview_scroll(-1 * (event.delta // 120), "units")
+        left_canvas.bind_all("<MouseWheel>", lambda e: _on_left_mousewheel(e) if "canvas" in str(e.widget).lower() or "frame" in str(e.widget).lower() else None)
+
+        left_canvas.pack(side="left", fill="both", expand=True)
+        self._build_left_sidebar(left_content)
+
+        # ── Center content area (VCD Tracks) ──
+        content = tk.Frame(top_frame, bg=COLORS["bg_dark"])
+        content.pack(side="left", fill="both", expand=True)
+        self._build_content(content)
+
+        # ── Right sidebar (Output Format, Output Folder, Rip Controls) ──
+        right_sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=420)
+        right_sidebar.pack(side="right", fill="y")
+        right_sidebar.pack_propagate(False)
 
         # Fixed bottom container for "Start Ripping" and "Stop Ripping" buttons
-        side_bottom_frame = tk.Frame(sidebar, bg=COLORS["bg_panel"])
-        side_bottom_frame.pack(side="bottom", fill="x", padx=16, pady=16)
+        right_bottom_frame = tk.Frame(right_sidebar, bg=COLORS["bg_panel"])
+        right_bottom_frame.pack(side="bottom", fill="x", padx=16, pady=16)
 
         self._rip_btn = FlatButton(
-            side_bottom_frame, text="Start Ripping", icon="⚡",
+            right_bottom_frame, text="Start Ripping", icon="⚡",
             style="primary", command=self._start_rip
         )
         self._rip_btn.pack(fill="x", pady=(0, 8))
 
         self._stop_btn = FlatButton(
-            side_bottom_frame, text="Stop Ripping", icon="⏹",
+            right_bottom_frame, text="Stop Ripping", icon="⏹",
             style="danger", command=self._stop_rip
         )
         self._stop_btn.pack(fill="x")
         self._stop_btn.configure_state(False)
 
-        # Top scrollable container for settings
-        side_scroll_area = tk.Frame(sidebar, bg=COLORS["bg_panel"])
-        side_scroll_area.pack(side="top", fill="both", expand=True)
+        # Scrollable container for Output Format & Output Folder
+        right_scroll_area = tk.Frame(right_sidebar, bg=COLORS["bg_panel"])
+        right_scroll_area.pack(side="top", fill="both", expand=True)
 
-        side_canvas = tk.Canvas(side_scroll_area, bg=COLORS["bg_panel"], highlightthickness=0)
-        side_vsb = ttk.Scrollbar(side_scroll_area, orient="vertical", command=side_canvas.yview)
-        side_canvas.configure(yscrollcommand=side_vsb.set)
-        side_vsb.pack(side="right", fill="y")
+        right_canvas = tk.Canvas(right_scroll_area, bg=COLORS["bg_panel"], highlightthickness=0)
+        right_vsb = ttk.Scrollbar(right_scroll_area, orient="vertical", command=right_canvas.yview)
+        right_canvas.configure(yscrollcommand=right_vsb.set)
+        right_vsb.pack(side="right", fill="y")
 
-        side_content = tk.Frame(side_canvas, bg=COLORS["bg_panel"])
-        side_window = side_canvas.create_window((0, 0), window=side_content, anchor="nw")
+        right_content = tk.Frame(right_canvas, bg=COLORS["bg_panel"])
+        right_window = right_canvas.create_window((0, 0), window=right_content, anchor="nw")
 
-        side_content.bind("<Configure>", lambda e: side_canvas.configure(scrollregion=side_canvas.bbox("all")))
-        side_canvas.bind("<Configure>", lambda e: side_canvas.itemconfig(side_window, width=e.width))
+        right_content.bind("<Configure>", lambda e: right_canvas.configure(scrollregion=right_canvas.bbox("all")))
+        right_canvas.bind("<Configure>", lambda e: right_canvas.itemconfig(right_window, width=e.width))
 
-        # Mousewheel scroll support on sidebar
-        def _on_side_mousewheel(event):
-            side_canvas.yview_scroll(-1 * (event.delta // 120), "units")
-        side_canvas.bind_all("<MouseWheel>", lambda e: _on_side_mousewheel(e) if "canvas" in str(e.widget).lower() or "frame" in str(e.widget).lower() else None)
+        def _on_right_mousewheel(event):
+            right_canvas.yview_scroll(-1 * (event.delta // 120), "units")
+        right_canvas.bind_all("<MouseWheel>", lambda e: _on_right_mousewheel(e) if "canvas" in str(e.widget).lower() or "frame" in str(e.widget).lower() else None)
 
-        side_canvas.pack(side="left", fill="both", expand=True)
-
-        self._build_sidebar(side_content)
-
-        # ── Right content area ───────────────
-        content = tk.Frame(top_frame, bg=COLORS["bg_dark"])
-        content.pack(side="left", fill="both", expand=True)
-
-        self._build_content(content)
+        right_canvas.pack(side="left", fill="both", expand=True)
+        self._build_right_sidebar(right_content)
 
         # ── Bottom log console ───────────────
         log_header = tk.Frame(bot_frame, bg=COLORS["bg_panel"], height=32)
@@ -796,11 +821,11 @@ class VCDRipperApp(tk.Tk):
     def _set_initial_sash(self, h):
         try:
             curr_h = self.winfo_height() or h
-            self._paned.sash_place(0, 0, curr_h - 85)
+            self._paned.sash_place(0, 0, curr_h - 135)
         except Exception:
             pass
 
-    def _build_sidebar(self, parent):
+    def _build_left_sidebar(self, parent):
         pad = {"padx": 20}
 
         # ── Source section ───────────────────
@@ -852,7 +877,7 @@ class VCDRipperApp(tk.Tk):
         self._path_lbl = tk.Label(
             parent, textvariable=self._vcd_path,
             font=FONTS["mono"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_muted"], wraplength=280,
+            fg=COLORS["text_muted"], wraplength=240,
             justify="left"
         )
         self._path_lbl.pack(fill="x", padx=20, pady=(6, 0))
@@ -883,89 +908,102 @@ class VCDRipperApp(tk.Tk):
             font=FONTS["body"], bg=COLORS["bg_panel"],
             fg=COLORS["text_muted"]
         )
-        self._sel_count_lbl.pack(padx=20, pady=(6, 0))
+        self._sel_count_lbl.pack(padx=20, pady=(6, 12))
 
-        # ── Separator ───────────────────────
-        tk.Frame(parent, bg=COLORS["border"], height=1).pack(
-            fill="x", padx=20, pady=12
-        )
-
+    def _build_right_sidebar(self, parent):
         # ── Output section ───────────────────
         self._section_label(parent, "OUTPUT FORMAT")
 
-        # ── Mode toggle: Video / Audio Only ──
-        mode_frame = tk.Frame(parent, bg=COLORS["bg_panel"])
-        mode_frame.pack(fill="x", padx=20, pady=(8, 0))
+        # ── Mode toggle: Video / Audio Only (boxed 2-line card) ──
+        mode_card = tk.Frame(
+            parent, bg=COLORS["bg_card"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1
+        )
+        mode_card.pack(fill="x", padx=20, pady=(8, 0))
 
         for mode_val, mode_txt, mode_col in [
-            ("video", "▶  Video",      COLORS["accent"]),
+            ("video", "🎬  Video",      COLORS["accent"]),
             ("audio", "🎵  Audio Only", COLORS["success"]),
         ]:
             tk.Radiobutton(
-                mode_frame, text=mode_txt,
+                mode_card, text=mode_txt,
                 variable=self._output_mode, value=mode_val,
-                font=FONTS["subhead"],
-                bg=COLORS["bg_panel"], fg=mode_col,
+                font=("Segoe UI", 11, "bold"),
+                bg=COLORS["bg_card"], fg=mode_col,
                 selectcolor=COLORS["bg_dark"],
-                activebackground=COLORS["bg_panel"],
+                activebackground=COLORS["bg_card"],
                 activeforeground=mode_col,
                 cursor="hand2",
                 command=self._on_mode_change
-            ).pack(side="left", expand=True)
+            ).pack(anchor="w", padx=16, pady=8)
 
         # ── Format options container (holds video_panel & audio_panel) ──
         self._fmt_container = tk.Frame(parent, bg=COLORS["bg_panel"])
-        self._fmt_container.pack(fill="x", padx=0, pady=(8, 0))
+        self._fmt_container.pack(fill="x", padx=0, pady=(4, 0))
 
         # ── Video sub-panel ─────────────────
         self._video_panel = tk.Frame(self._fmt_container, bg=COLORS["bg_panel"])
         self._video_panel.pack(fill="x", padx=0, pady=0)
 
-        fmt_frame = tk.Frame(self._video_panel, bg=COLORS["bg_panel"])
-        fmt_frame.pack(fill="x", padx=20)
+        tk.Label(
+            self._video_panel, text="Video Format:",
+            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_panel"],
+            fg=COLORS["text_secondary"]
+        ).pack(anchor="w", padx=20, pady=(8, 4))
 
-        for fmt, info in OUTPUT_FORMATS.items():
+        fmt_card = tk.Frame(
+            self._video_panel, bg=COLORS["bg_card"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1
+        )
+        fmt_card.pack(fill="x", padx=20, pady=(0, 4))
+
+        for idx, (fmt, info) in enumerate(OUTPUT_FORMATS.items()):
+            item_frame = tk.Frame(fmt_card, bg=COLORS["bg_card"])
+            item_frame.pack(fill="x", padx=14, pady=(6 if idx == 0 else 4, 6))
+
             rb = tk.Radiobutton(
-                fmt_frame, text=fmt,
+                item_frame, text=fmt,
                 variable=self._output_format, value=fmt,
-                font=FONTS["subhead"],
-                bg=COLORS["bg_panel"],
+                font=("Segoe UI", 12, "bold"),
+                bg=COLORS["bg_card"],
                 fg=info["color"],
-                selectcolor=COLORS["bg_dark"],
-                activebackground=COLORS["bg_panel"],
+                selectcolor=COLORS["bg_panel"],
+                activebackground=COLORS["bg_card"],
                 activeforeground=info["color"],
                 cursor="hand2",
                 command=self._on_format_change
             )
-            rb.pack(side="left", expand=True)
+            rb.pack(anchor="w")
 
-        self._fmt_desc_lbl = tk.Label(
-            self._video_panel, text=OUTPUT_FORMATS["DAT"]["desc"],
-            font=FONTS["small"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_muted"], wraplength=280
-        )
-        self._fmt_desc_lbl.pack(padx=20, pady=(4, 0))
+            desc_lbl = tk.Label(
+                item_frame, text=info["desc"],
+                font=("Segoe UI", 10), bg=COLORS["bg_card"],
+                fg=COLORS["text_secondary"], justify="left"
+            )
+            desc_lbl.pack(anchor="w", padx=(28, 0), pady=(1, 0))
 
         # DAT sub-option
         self._dat_suboption_frame = tk.Frame(self._video_panel, bg=COLORS["bg_card"],
             highlightbackground=COLORS["border"], highlightthickness=1)
-        self._dat_suboption_frame.pack(fill="x", padx=20, pady=(8, 0))
+        self._dat_suboption_frame.pack(fill="x", padx=20, pady=(6, 0))
 
         tk.Label(
             self._dat_suboption_frame, text="DAT Output Mode:",
-            font=FONTS["small"], bg=COLORS["bg_card"],
+            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
             fg=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=10, pady=(8, 4))
+        ).pack(anchor="w", padx=14, pady=(8, 4))
 
         rb_row = tk.Frame(self._dat_suboption_frame, bg=COLORS["bg_card"])
-        rb_row.pack(fill="x", padx=10, pady=(0, 8))
+        rb_row.pack(fill="x", padx=14, pady=(0, 8))
 
         tk.Radiobutton(
             rb_row, text="Raw .dat  (no changes)",
             variable=self._dat_rename_mp4, value=False,
-            font=FONTS["small"], bg=COLORS["bg_card"],
+            font=("Segoe UI", 11), bg=COLORS["bg_card"],
             fg=COLORS["text_primary"],
-            selectcolor=COLORS["bg_dark"],
+            selectcolor=COLORS["bg_panel"],
             activebackground=COLORS["bg_card"],
             cursor="hand2"
         ).pack(anchor="w")
@@ -973,12 +1011,46 @@ class VCDRipperApp(tk.Tk):
         tk.Radiobutton(
             rb_row, text="Rename to .mp4",
             variable=self._dat_rename_mp4, value=True,
-            font=FONTS["small"], bg=COLORS["bg_card"],
+            font=("Segoe UI", 11), bg=COLORS["bg_card"],
             fg=COLORS["text_primary"],
-            selectcolor=COLORS["bg_dark"],
+            selectcolor=COLORS["bg_panel"],
             activebackground=COLORS["bg_card"],
             cursor="hand2"
         ).pack(anchor="w", pady=(4, 0))
+
+        # ── MP4 / MOV resolution sub-panel ──────
+        self._res_suboption_frame = tk.Frame(self._video_panel, bg=COLORS["bg_card"],
+            highlightbackground=COLORS["border"], highlightthickness=1)
+        # hidden by default (only shown for MP4/MOV)
+
+        tk.Label(
+            self._res_suboption_frame, text="Export Resolution:",
+            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            fg=COLORS["text_secondary"]
+        ).pack(anchor="w", padx=14, pady=(8, 4))
+
+        res_rb_row = tk.Frame(self._res_suboption_frame, bg=COLORS["bg_card"])
+        res_rb_row.pack(fill="x", padx=14, pady=(0, 8))
+
+        tk.Radiobutton(
+            res_rb_row, text="Original Quality",
+            variable=self._use_1080p, value=False,
+            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_panel"],
+            activebackground=COLORS["bg_card"],
+            cursor="hand2"
+        ).pack(anchor="w")
+
+        tk.Radiobutton(
+            res_rb_row, text="1440×1080  (upscale to 1080p, 4:3)",
+            variable=self._use_1080p, value=True,
+            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_panel"],
+            activebackground=COLORS["bg_card"],
+            cursor="hand2"
+        ).pack(anchor="w", pady=(6, 0))
 
         # ── Audio Only sub-panel ─────────────
         self._audio_panel = tk.Frame(self._fmt_container, bg=COLORS["bg_panel"])
@@ -986,33 +1058,41 @@ class VCDRipperApp(tk.Tk):
 
         tk.Label(
             self._audio_panel, text="Audio Format:",
-            font=FONTS["small"], bg=COLORS["bg_panel"],
+            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_panel"],
             fg=COLORS["text_secondary"]
-        ).pack(anchor="w", padx=20, pady=(4, 4))
+        ).pack(anchor="w", padx=20, pady=(8, 4))
 
-        audio_fmt_frame = tk.Frame(self._audio_panel, bg=COLORS["bg_panel"])
-        audio_fmt_frame.pack(fill="x", padx=20)
+        audio_fmt_card = tk.Frame(
+            self._audio_panel, bg=COLORS["bg_card"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1
+        )
+        audio_fmt_card.pack(fill="x", padx=20, pady=(0, 4))
 
-        for afmt, ainfo in AUDIO_FORMATS.items():
-            tk.Radiobutton(
-                audio_fmt_frame, text=afmt,
+        for idx, (afmt, ainfo) in enumerate(AUDIO_FORMATS.items()):
+            aitem_frame = tk.Frame(audio_fmt_card, bg=COLORS["bg_card"])
+            aitem_frame.pack(fill="x", padx=14, pady=(6 if idx == 0 else 4, 6))
+
+            arb = tk.Radiobutton(
+                aitem_frame, text=afmt,
                 variable=self._audio_format, value=afmt,
-                font=FONTS["subhead"],
-                bg=COLORS["bg_panel"],
+                font=("Segoe UI", 12, "bold"),
+                bg=COLORS["bg_card"],
                 fg=ainfo["color"],
-                selectcolor=COLORS["bg_dark"],
-                activebackground=COLORS["bg_panel"],
+                selectcolor=COLORS["bg_panel"],
+                activebackground=COLORS["bg_card"],
                 activeforeground=ainfo["color"],
                 cursor="hand2",
                 command=self._on_audio_format_change
-            ).pack(side="left", expand=True)
+            )
+            arb.pack(anchor="w")
 
-        self._audio_desc_lbl = tk.Label(
-            self._audio_panel, text=AUDIO_FORMATS["WAV"]["desc"],
-            font=FONTS["small"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_muted"], wraplength=280
-        )
-        self._audio_desc_lbl.pack(padx=20, pady=(4, 0))
+            adesc_lbl = tk.Label(
+                aitem_frame, text=ainfo["desc"],
+                font=("Segoe UI", 10), bg=COLORS["bg_card"],
+                fg=COLORS["text_secondary"], justify="left"
+            )
+            adesc_lbl.pack(anchor="w", padx=(28, 0), pady=(1, 0))
 
         # ── Separator ───────────────────────
         tk.Frame(parent, bg=COLORS["border"], height=1).pack(
@@ -1031,13 +1111,20 @@ class VCDRipperApp(tk.Tk):
         self._out_lbl = tk.Label(
             parent, textvariable=self._output_folder,
             font=FONTS["mono"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_muted"], wraplength=280,
+            fg=COLORS["text_muted"], wraplength=360,
             justify="left"
         )
-        self._out_lbl.pack(fill="x", padx=20, pady=(6, 0))
+        self._out_lbl.pack(fill="x", padx=20, pady=(6, 4))
 
-        # ── Spacer ───────────────────────────
-        tk.Frame(parent, bg=COLORS["bg_panel"], height=20).pack(fill="x")
+        tk.Checkbutton(
+            parent, text="Open output folder after ripped",
+            variable=self._auto_open_folder,
+            font=("Segoe UI", 11), bg=COLORS["bg_panel"],
+            fg=COLORS["text_primary"],
+            selectcolor=COLORS["bg_dark"],
+            activebackground=COLORS["bg_panel"],
+            cursor="hand2", relief="flat", bd=0
+        ).pack(anchor="w", padx=20, pady=(4, 12))
 
     def _build_content(self, parent):
         # ── Title bar ───────────────────────
@@ -1422,15 +1509,18 @@ class VCDRipperApp(tk.Tk):
 
     def _on_format_change(self):
         fmt = self._output_format.get()
-        self._fmt_desc_lbl.configure(text=OUTPUT_FORMATS[fmt]["desc"])
         if fmt == "DAT":
-            self._dat_suboption_frame.pack(fill="x", padx=20, pady=(8, 0))
+            self._dat_suboption_frame.pack(fill="x", padx=20, pady=(6, 0))
         else:
             self._dat_suboption_frame.pack_forget()
+        # Show resolution panel only for MP4 and MOV
+        if fmt in ("MP4", "MOV"):
+            self._res_suboption_frame.pack(fill="x", padx=20, pady=(6, 0))
+        else:
+            self._res_suboption_frame.pack_forget()
 
     def _on_audio_format_change(self):
-        afmt = self._audio_format.get()
-        self._audio_desc_lbl.configure(text=AUDIO_FORMATS[afmt]["desc"])
+        pass
 
     def _on_mode_change(self):
         mode = self._output_mode.get()
@@ -1517,11 +1607,11 @@ class VCDRipperApp(tk.Tk):
 
         threading.Thread(
             target=self._rip_thread,
-            args=(videos_to_rip, out_folder, fmt, fmt_cfg),
+            args=(videos_to_rip, out_folder, fmt, fmt_cfg, self._use_1080p.get()),
             daemon=True
         ).start()
 
-    def _rip_thread(self, videos, out_folder, fmt, fmt_cfg):
+    def _rip_thread(self, videos, out_folder, fmt, fmt_cfg, use_1080p=False):
         total   = len(videos)
         success = 0
         errors  = 0
@@ -1595,10 +1685,16 @@ class VCDRipperApp(tk.Tk):
                     ))
             else:
                 # Use FFmpeg to convert/rip video
+                # Build args — optionally inject 1080p downscale filter
+                ffmpeg_args = list(fmt_cfg["args"])
+                if use_1080p and fmt in ("MP4", "MOV"):
+                    # Upscale VCD (352x240 / 352x288) to 1440x1080 (4:3 at 1080p)
+                    # using Lanczos for sharpest quality upscale
+                    ffmpeg_args = ["-vf", "scale=1440:1080:flags=lanczos"] + ffmpeg_args
                 cmd = [
                     self._ffmpeg,
                     "-i", video["path"],
-                    *fmt_cfg["args"],
+                    *ffmpeg_args,
                     "-y",
                     out_path
                 ]
@@ -1679,11 +1775,19 @@ class VCDRipperApp(tk.Tk):
                 f"All {success} file(s) ripped successfully! Output: {out_folder}",
                 "success"
             )
+            # Auto-open output folder if checked
+            if self._auto_open_folder.get():
+                try:
+                    os.startfile(out_folder)
+                except Exception as e:
+                    self._log.log(f"Could not open output folder: {e}", "warning")
+
+            # Only prompt to eject disc
             if messagebox.askyesno(
-                "Done!",
-                f"Successfully ripped {success} video(s)!\n\nOpen output folder?"
+                "Eject Disc?",
+                f"Successfully ripped {success} file(s)!\n\nWould you like to eject the disc now?"
             ):
-                os.startfile(out_folder)
+                self._eject_drive_f()
         else:
             self._log.log(
                 f"Completed with {errors} error(s). {success} file(s) saved to {out_folder}",
@@ -1704,6 +1808,50 @@ class VCDRipperApp(tk.Tk):
 
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+    # ── Drive eject & Reset ───────────────────
+    def _clear_disc_info(self):
+        """Reset and clear all scanned disc tracks and drive info UI."""
+        self._videos.clear()
+        self._cards.clear()
+        self._selected_indices.clear()
+        self._vcd_path.set("")
+
+        self._clear_list()
+        if hasattr(self, "_empty_frame") and self._empty_frame.winfo_exists():
+            self._empty_frame.pack(expand=True, pady=80)
+
+        self._drive_lbl.configure(text="⏺  No disc detected", fg=COLORS["text_muted"])
+        self._detect_icon.configure(text="💿")
+        self._detect_label.configure(text="Insert a VCD disc\nor click Browse", fg=COLORS["text_muted"])
+        self._detected_drive_lbl.configure(text="")
+        self._video_count_badge.configure(text="0 tracks detected")
+        self._sel_count_lbl.configure(text="0 of 0 selected")
+
+        self._log.log("Disc information cleared.", "info")
+
+    def _eject_drive_f(self):
+        """Eject the optical disc in drive F: using Windows Shell COM API and clear disc info."""
+        try:
+            ps_cmd = (
+                "(New-Object -ComObject Shell.Application)"
+                ".Namespace(17).ParseName('F:').InvokeVerb('Eject')"
+            )
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-NonInteractive",
+                 "-Command", ps_cmd],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            self._log.log("Eject command sent to drive F:", "info")
+        except Exception as e:
+            self._log.log(f"Eject failed: {e}", "error")
+            messagebox.showwarning(
+                "Eject failed",
+                f"Could not eject drive F:\n{e}"
+            )
+        finally:
+            # Auto clear disc information UI
+            self._clear_disc_info()
 
     # ── FFmpeg warning ────────────────────────
     def _show_ffmpeg_warning(self):

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.1.1-6C63FF?style=flat-square"/>
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-6C63FF?style=flat-square"/>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square"/>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22C55E?style=flat-square"/>
   <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-F59E0B?style=flat-square"/>
@@ -24,11 +24,13 @@
 |---|---|
 | 🎬 **Direct DAT Extraction** | Copy raw `.dat` files from VCD directly — no re-encoding, fastest possible speed |
 | 🎞 **Video Conversion** | Convert to **MPG**, **MP4** (H.264+AAC), or **MOV** using FFmpeg |
+| 📐 **1440×1080 Upscale** | When exporting to MP4 or MOV, optionally upscale to **1440×1080** (4:3 at 1080p) using Lanczos — ideal for VCD's low-res 352×240 source |
 | 🎵 **Audio Only Mode** | Extract audio as **WAV** (lossless) or **MP3** (compressed) |
 | ✏ **File Rename** | Rename output files before ripping via an inline rename dialog |
 | ☑ **Batch Selection** | Select all / none with one click; defaults to all-selected after scan |
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
 | 📋 **Console Log** | Live log of every operation with timestamps |
+| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc from drive F: |
 | 💾 **Portable** | No installation required — run from any folder on any Windows PC |
 
 ---
@@ -79,16 +81,17 @@ python vcd_ripper.py
 
 ## 📖 Usage Guide
 
-1. **Insert your VCD** or click **Browse Folder** to point to a VCD folder.
-2. Click **Scan VCD** — the app will detect all video tracks automatically.
-3. Select the files you want (all are selected by default).
-4. *(Optional)* Click the **✏ icon** on any file card to rename the output file.
-5. Choose **Output Format**:
-   - **Video** → DAT / MPG / MP4 / MOV
-   - **Audio Only** → WAV / MP3
-6. Click **Choose Output Folder** to pick where files are saved.
-7. Click **⚡ Start Ripping**.
-8. Click **⏹ Stop Ripping** at any time to cancel.
+1. **Left Panel — Source & Selection**:
+   - Insert your VCD disc or click **Browse Folder** to target a VCD folder.
+   - Click **Scan VCD** — the app will automatically list all detected tracks.
+   - Select tracks via checkmarks (or **All** / **None**).
+2. **Center Panel — Track List**:
+   - *(Optional)* Click the **✏ icon** on any track card to rename the output file.
+3. **Right Panel — Export & Control**:
+   - Choose **Output Format** (**Video** → DAT/MPG/MP4/MOV, or **Audio Only** → WAV/MP3).
+   - *(Optional for MP4/MOV)* Toggle **1440×1080** Lanczos upscale.
+   - Click **Choose Output Folder** to pick destination directory.
+   - Click **⚡ Start Ripping** (or **⏹ Stop Ripping** to cancel).
 
 ---
 
