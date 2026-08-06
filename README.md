@@ -27,10 +27,10 @@
 | 📐 **1440×1080 Upscale** | When exporting to MP4 or MOV, optionally upscale to **1440×1080** (4:3 at 1080p) using Lanczos — ideal for VCD's low-res 352×240 source |
 | 🎵 **Audio Only Mode** | Extract audio as **WAV** (lossless) or **MP3** (compressed) |
 | ✏ **File Rename** | Rename output files before ripping |
-| ☑ **Batch Selection** | Select all / none with one click; defaults to all-selected after scan |
+| ☑ **Batch Selection** | Select all / none with one click |
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
 | 📋 **Console Log** | Live log of every operation with timestamps |
-| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc from drive |
+| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc |
 | 💾 **Portable** | No installation required — run from any folder on any Windows PC |
 
 ---
