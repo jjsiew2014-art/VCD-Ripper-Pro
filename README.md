@@ -26,7 +26,7 @@
 | 🎞 **Video Conversion** | Convert to **MPG**, **MP4** (H.264+AAC), or **MOV** using FFmpeg |
 | 📐 **1440×1080 Upscale** | When exporting to MP4 or MOV, optionally upscale to **1440×1080** (4:3 at 1080p) using Lanczos — ideal for VCD's low-res 352×240 source |
 | 🎵 **Audio Only Mode** | Extract audio as **WAV** (lossless) or **MP3** (compressed) |
-| ✏ **File Rename** | Rename output files before ripping via an inline rename dialog |
+| ✏ **File Rename** | Rename output files before ripping |
 | ☑ **Batch Selection** | Select all / none with one click; defaults to all-selected after scan |
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
 | 📋 **Console Log** | Live log of every operation with timestamps |
