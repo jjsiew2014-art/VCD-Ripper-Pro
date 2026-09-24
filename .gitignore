@@ -59,10 +59,13 @@ $RECYCLE.BIN/
 *.bak
 *.swp
 *.swo
+config.json
 
 # ── Compiled / portable output ───────────────
 # The portable ZIP and folder are build artifacts — do NOT commit them
 VCD_Ripper_Pro_Portable.zip
+release/
+*.zip
 
 # ── Sensitive / personal output ──────────────
 # Never commit ripped video output files
