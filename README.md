@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-6C63FF?style=flat-square"/>
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-6C63FF?style=flat-square"/>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square"/>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22C55E?style=flat-square"/>
   <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-F59E0B?style=flat-square"/>
@@ -27,10 +27,15 @@
 | 📐 **1440×1080 Upscale** | When exporting to MP4 or MOV, optionally upscale to **1440×1080** (4:3 at 1080p) using Lanczos — ideal for VCD's low-res 352×240 source |
 | 🎵 **Audio Only Mode** | Extract audio as **WAV** (lossless) or **MP3** (compressed) |
 | ✏ **File Rename** | Rename output files before ripping via an inline rename dialog |
+| ✏ **Batch Rename** | Rename all output files at once via a dedicated batch rename dialog |
+| 🔄 **Auto-Scan** | Automatically scans for VCD tracks when a disc is inserted — no manual scan needed |
 | ☑ **Batch Selection** | Select all / none with one click; defaults to all-selected after scan |
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
 | 📋 **Console Log** | Live log of every operation with timestamps |
-| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc from drive F: |
+| ⏏ **Eject Disc** | Eject button in the header bar; auto-detects drive letter with multi-strategy eject for broad Windows compatibility |
+| 📂 **Auto-Open Folder** | Option to automatically open output folder after ripping completes |
+| 📊 **Taskbar Progress** | Real-time Rip progress bar on Windows taskbar icon (green for in-progress, yellow for stopped, red for errors) |
+| 🌓 **Appearance Themes** | Switch between **System** (auto-detects Windows dark/light theme), **Light Mode**, and **Dark Mode** |
 | 💾 **Portable** | No installation required — run from any folder on any Windows PC |
 
 ---
@@ -82,16 +87,20 @@ python vcd_ripper.py
 ## 📖 Usage Guide
 
 1. **Left Panel — Source & Selection**:
-   - Insert your VCD disc or click **Browse Folder** to target a VCD folder.
-   - Click **Scan VCD** — the app will automatically list all detected tracks.
+   - Insert your VCD disc — the app **auto-detects and scans** tracks automatically.
+   - Alternatively, click **Browse Folder** to target a VCD folder manually.
    - Select tracks via checkmarks (or **All** / **None**).
 2. **Center Panel — Track List**:
    - *(Optional)* Click the **✏ icon** on any track card to rename the output file.
+   - *(Optional)* Use **✏ Batch Rename** in the header to rename all files at once.
 3. **Right Panel — Export & Control**:
    - Choose **Output Format** (**Video** → DAT/MPG/MP4/MOV, or **Audio Only** → WAV/MP3).
    - *(Optional for MP4/MOV)* Toggle **1440×1080** Lanczos upscale.
    - Click **Choose Output Folder** to pick destination directory.
+   - *(Optional)* Enable **Open output folder after ripped** to auto-open the folder.
    - Click **⚡ Start Ripping** (or **⏹ Stop Ripping** to cancel).
+4. **Header Bar**:
+   - **⏏ Eject Disc** — eject the optical drive (auto-detects the correct drive).
 
 ---
 

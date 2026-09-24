@@ -23,7 +23,7 @@ from datetime import datetime
 #  Constants & Colour Palette
 # ─────────────────────────────────────────────
 APP_NAME = "VCD Ripper Pro"
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 
 THEME_DARK = {
     "bg_dark":        "#0D0F14",
