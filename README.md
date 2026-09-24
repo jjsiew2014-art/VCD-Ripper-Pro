@@ -42,7 +42,6 @@
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
 | 📋 **Console Log** | Live log of every operation with timestamps |
 | 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc |
->>>>>>> 73ff13405d1798fcf7368adc67fb04ca0848509c
 | 💾 **Portable** | No installation required — run from any folder on any Windows PC |
 
 ---
