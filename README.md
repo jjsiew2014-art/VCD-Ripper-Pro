@@ -37,7 +37,6 @@
 | 📂 **Auto-Open Folder** | Option to automatically open output folder after ripping completes |
 | 📊 **Taskbar Progress** | Real-time Rip progress bar on Windows taskbar icon (green for in-progress, yellow for stopped, red for errors) |
 | 🌓 **Appearance Themes** | Switch between **System** (auto-detects Windows dark/light theme), **Light Mode**, and **Dark Mode** |
-=======
 | ✏ **File Rename** | Rename output files before ripping |
 | ☑ **Batch Selection** | Select all / none with one click |
 | ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
