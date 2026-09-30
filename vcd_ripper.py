@@ -1885,7 +1885,7 @@ class WindowsTaskbarProgress:
 class VCDRipperApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{t('header.title')}  v{APP_VERSION}")
+        self.title(t('header.title'))
         self.configure(bg=COLORS["bg_dark"])
 
         # DPI awareness
@@ -4832,7 +4832,7 @@ class VCDRipperApp(tk.Tk):
             self._log_window.withdraw()
 
     def _refresh_ui(self):
-        self.title(f"{t('header.title')}  v{APP_VERSION}")
+        self.title(t('header.title'))
         self._title_lbl.configure(text=t('header.title'))
         self._console_btn.configure(text=t('header.console'))
         if hasattr(self, "_clear_all_btn"):
