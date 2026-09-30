@@ -26,7 +26,6 @@
 | 🎞 **Video Conversion** | Convert to **MPG**, **MP4** (H.264+AAC), or **MOV** using FFmpeg |
 | 📐 **1440×1080 Upscale** | When exporting to MP4 or MOV, optionally upscale to **1440×1080** (4:3 at 1080p) using Lanczos — ideal for VCD's low-res 352×240 source |
 | 🎵 **Audio Only Mode** | Extract audio as **WAV** (lossless) or **MP3** (compressed) |
-<<<<<<< HEAD
 | ✏ **File Rename** | Rename output files before ripping via an inline rename dialog |
 | ✏ **Batch Rename** | Rename all output files at once via a dedicated batch rename dialog |
 | 🔄 **Auto-Scan** | Automatically scans for VCD tracks when a disc is inserted — no manual scan needed |
