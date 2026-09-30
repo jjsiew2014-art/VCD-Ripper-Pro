@@ -1,0 +1,193 @@
+{
+  "header": {
+    "title": "VCD Ripper Pro",
+    "console": "📋  控制台",
+    "clear_all": "🗑  清空",
+    "clear_all_tip": "清空已加载的影片列表与进度",
+    "about": "⚙  设置",
+    "batch_rename": "✏  批量重命名",
+    "eject_disc": "⏏  弹出光盘",
+    "no_disc": "⏺  未检测到光盘",
+    "vcd_on": "💿  VCD 位于 {drive}:",
+    "drive_no_vcd": "💿  驱动器 {drive}: (无 VCD)"
+  },
+  "drive": {
+    "detect_vcd": "检测到 VCD！",
+    "insert_vcd": "插入 VCD 光盘\n或点击浏览",
+    "folder_selected": "已选择 VCD 文件夹",
+    "drive_label": "驱动器  {drive}:"
+  },
+  "source": {
+    "title": "来源",
+    "browse": "浏览文件夹",
+    "scan": "扫描 VCD"
+  },
+  "selection": {
+    "title": "选择",
+    "all": "全选",
+    "none": "取消全选",
+    "count": "已选择 {n} / {total}"
+  },
+  "format": {
+    "title": "输出格式",
+    "video_mode": "🎬  视频",
+    "audio_mode": "🎵  仅音频",
+    "video_lbl": "视频格式：",
+    "dat_desc": "原始档案",
+    "mpg_desc": "MPEG-1/2 (原生 VCD)",
+    "mp4_desc": "H.264 + AAC (广泛兼容)",
+    "mov_desc": "QuickTime / 苹果兼容",
+    "dat_mode_lbl": "DAT 输出模式：",
+    "dat_raw": "原始 .dat",
+    "dat_mp4": "重命名为 .mp4",
+    "res_title": "导出分辨率：",
+    "res_orig": "原始画质",
+    "res_1080p": "1440×1080 (拉伸至 1080p, 4:3)",
+    "audio_lbl": "音频格式：",
+    "wav_desc": "无损 PCM 音频",
+    "mp3_desc": "高品质压缩音频"
+  },
+  "output": {
+    "title": "输出",
+    "choose": "选择文件夹",
+    "auto_open": "提取完成后打开输出文件夹"
+  },
+  "rip": {
+    "start": "开始提取",
+    "stop": "停止提取"
+  },
+  "content": {
+    "title": "视频文件",
+    "badge": "  {n}  ",
+    "badge_empty": "检测到 0 个轨道",
+    "empty_title": "未加载 VCD",
+    "empty_sub": "插入光盘或浏览至 VCD 文件夹，然后点击扫描 VCD",
+    "scan_prog_folder": "正在扫描文件夹：{name}...",
+    "scan_prog_read": "正在读取元数据 ({idx}/{total})：{name}",
+    "rip_prog_proc": "正在处理 ({idx}/{total})：{name}",
+    "rip_prog_stop": "已停止：成功保存 {success}/{total} 个文件",
+    "rip_prog_done": "已完成：成功提取 {success}/{total} 个文件"
+  },
+  "console": {
+    "title": "  📋  控制台日志",
+    "clear": "清除"
+  },
+  "about": {
+    "title": "设置",
+    "app": "应用程序",
+    "version": "版本",
+    "dev": "开发者",
+    "ffmpeg": "FFmpeg 状态",
+    "ffmpeg_path": "FFmpeg 路径",
+    "ready": "✓  就绪",
+    "not_found": "✗  未找到",
+    "license": "MIT 许可证",
+    "close": "关闭"
+  },
+  "language": {
+    "title": "语言",
+    "en": "English",
+    "zh": "中文"
+  },
+  "appearance": {
+    "title": "外观",
+    "system": "跟随系统",
+    "light": "浅色模式",
+    "dark": "深色模式"
+  },
+  "scale": {
+    "title": "界面缩放",
+    "100": "100%",
+    "125": "125%",
+    "150": "150%",
+    "100%": "100%",
+    "125%": "125%",
+    "150%": "150%"
+  },
+  "rename": {
+    "title": "重命名文件",
+    "inst": "输出文件名 (不含扩展名)：",
+    "apply": "应用",
+    "cancel": "取消"
+  },
+  "batch": {
+    "title": "批量重命名",
+    "header": "批量重命名文件",
+    "inst": "在下方编辑输出文件名 (不含扩展名)：",
+    "track": "轨道 {n}:",
+    "apply_all": "全部应用",
+    "cancel": "取消",
+    "no_files_title": "没有文件",
+    "no_files_msg": "没有可以重命名的文件。请先扫描 VCD。",
+    "seq_enable": "启用顺序编号",
+    "seq_base": "基础名称：",
+    "seq_start": "起始序号：",
+    "seq_suffix": "后缀：",
+    "seq_preview": "预览："
+  },
+  "messageboxes": {
+    "no_source_title": "没有来源",
+    "no_source_msg": "请先插入 VCD 或浏览至 VCD 文件夹。",
+    "invalid_path_title": "路径无效",
+    "invalid_path_msg": "路径不存在：\n{path}",
+    "no_files_title": "未找到文件",
+    "no_files_msg": "未找到 VCD 视频文件 (.DAT)。\n请确保选择了 VCD 光盘或文件夹的根目录。",
+    "ffmpeg_req_title": "未找到 FFmpeg",
+    "ffmpeg_req_msg": "音频提取和视频转换需要 FFmpeg。\n\n请从 https://ffmpeg.org/download.html 下载，并确保\nffmpeg.exe 位于您的 PATH 环境变量中，或者与本脚本同级的 'ffmpeg/bin' 文件夹中。\n\n提示：选择 'DAT' 视频格式可以直接提取原始文件而无需 FFmpeg。",
+    "no_sel_title": "未选择",
+    "no_sel_msg": "未选择任何视频。要提取所有视频吗？",
+    "no_vid_title": "没有视频",
+    "no_vid_msg": "请先扫描 VCD。",
+    "stop_title": "任务已停止",
+    "stop_msg": "提取任务已被用户停止。\n\n{success} 个视频已保存至：\n{folder}",
+    "eject_title": "弹出光盘？",
+    "eject_msg": "已成功提取 {success} 个文件！\n\n您想现在弹出光盘吗？",
+    "err_title": "完成但有错误",
+    "err_msg": "成功提取了 {success} 个文件。\n{errors} 个文件出现错误 — 请查看控制台日志。",
+    "no_drive_title": "没有光盘驱动器",
+    "no_drive_msg": "未检测到光盘驱动器。",
+    "eject_fail_title": "弹出失败",
+    "eject_fail_msg": "无法弹出驱动器 {drive}:\n{err}",
+    "ejecting": "正在从驱动器 {drive} 弹出光盘:...",
+    "unsupported_disc_title": "不支持的光盘格式",
+    "unsupported_disc_msg": "侦测到非 VCD 光盘（如音乐 CD 或 DVD）。本软件仅专门用于 VCD 光盘抓取与转换。",
+    "timeout_title": "光碟读取超时",
+    "timeout_msg": "由于光盘严重划伤或坏道导致读取超时，已停止提取。已为您保留已完成抓取的视频片段。",
+    "btn_ok": "确定",
+    "btn_eject": "弹出光碟"
+  },
+  "log": {
+    "non_vcd_blocked": "在驱动器 {drive} 检测到光盘，类型: {type}，已拦截处理流程。",
+    "vcd_auto": "自动检测到 VCD 光盘于 {drive}",
+    "vcd_found": "在 {folder} 找到 VCD 结构",
+    "vcd_not_std": "所选文件夹可能不是标准 VCD (未找到 .DAT 文件)。仍将扫描...",
+    "scan_dir": "正在扫描 {path} …",
+    "no_vid": "在所选路径中未找到视频文件。",
+    "found_files": "找到 {total} 个文件。正在读取元数据…",
+    "loaded": "已从 VCD 加载 {total} 个视频。已全选。",
+    "out_set": "输出文件夹设置为：{folder}",
+    "cancel_req": "用户请求取消… 正在停止进程。",
+    "start_ext": "开始提取 {total} 个文件 → {fmt} 格式…",
+    "extracting": "正在提取：{name} → {out}",
+    "raw_dat_ok": "✓  已提取原始 DAT → 保存为：{name}  ({size} MB)",
+    "copy_err": "直接复制错误：{err}",
+    "saved_ok": "✓  已保存：{name}  ({size} MB)",
+    "saved_partial": "⚠  已保留部分视频片段：{name}  ({size} MB)",
+    "read_timeout": "读取光盘 {name} 超时（已停滞 {timeout} 秒）。正在终止进程。",
+    "ffmpeg_err": "FFmpeg 处理错误：{name}",
+    "exc": "异常：{err}",
+    "stop_sum": "提取被用户停止。已完成 {success} 个文件。",
+    "done_ok": "所有 {success} 个文件提取成功！输出至：{folder}",
+    "open_err": "无法打开输出文件夹：{err}",
+    "done_err": "完成，共有 {errors} 个错误。{success} 个文件保存至 {folder}",
+    "cleared": "光盘信息已清除。",
+    "cleared_all": "已清空影片列表与进度。",
+    "eject_win32": "光盘已从驱动器 {drive} 弹出：(DeviceIoControl)",
+    "eject_win32_fail": "DeviceIoControl 弹出失败：{err}",
+    "eject_ps": "弹出命令已发送至驱动器 {drive}：(PowerShell)",
+    "eject_ps_fail": "PowerShell 弹出也失败：{err}",
+    "batch_renamed": "已批量重命名 {total} 个文件。",
+    "ffmpeg_dl": "未找到 FFmpeg！请从 https://ffmpeg.org 下载并添加到 PATH。",
+    "ffmpeg_hint": "或者将 ffmpeg.exe 放在本脚本旁边的 'ffmpeg/bin' 子文件夹中。"
+  }
+}

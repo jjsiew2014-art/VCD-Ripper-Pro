@@ -1,0 +1,193 @@
+{
+  "header": {
+    "title": "VCD Ripper Pro",
+    "console": "📋  Console",
+    "clear_all": "🗑  Clear All",
+    "clear_all_tip": "Clear loaded video files and progress",
+    "about": "⚙  Setting",
+    "batch_rename": "✏  Batch Rename",
+    "eject_disc": "⏏  Eject Disc",
+    "no_disc": "⏺  No disc detected",
+    "vcd_on": "💿  VCD on {drive}:",
+    "drive_no_vcd": "💿  Drive {drive}: (no VCD)"
+  },
+  "drive": {
+    "detect_vcd": "VCD detected!",
+    "insert_vcd": "Insert a VCD disc\nor click Browse",
+    "folder_selected": "VCD folder selected",
+    "drive_label": "Drive  {drive}:"
+  },
+  "source": {
+    "title": "SOURCE",
+    "browse": "Browse Folder",
+    "scan": "Scan VCD"
+  },
+  "selection": {
+    "title": "SELECTION",
+    "all": "All",
+    "none": "None",
+    "count": "{n} of {total} selected"
+  },
+  "format": {
+    "title": "OUTPUT FORMAT",
+    "video_mode": "🎬  Video",
+    "audio_mode": "🎵  Audio Only",
+    "video_lbl": "Video Format:",
+    "dat_desc": "Raw direct copy",
+    "mpg_desc": "MPEG-1/2 (native VCD stream)",
+    "mp4_desc": "H.264 + AAC (widely compatible)",
+    "mov_desc": "QuickTime / Apple compatible",
+    "dat_mode_lbl": "DAT Output Mode:",
+    "dat_raw": "Raw .dat  (no changes)",
+    "dat_mp4": "Rename to .mp4",
+    "res_title": "Export Resolution:",
+    "res_orig": "Original Quality",
+    "res_1080p": "1440×1080  (upscale to 1080p, 4:3)",
+    "audio_lbl": "Audio Format:",
+    "wav_desc": "Lossless PCM audio",
+    "mp3_desc": "High quality compressed audio"
+  },
+  "output": {
+    "title": "OUTPUT FOLDER",
+    "choose": "Choose Output Folder",
+    "auto_open": "Open output folder after ripped"
+  },
+  "rip": {
+    "start": "Start Ripping",
+    "stop": "Stop Ripping"
+  },
+  "content": {
+    "title": "Video Files",
+    "badge": "  {n}  ",
+    "badge_empty": "0 tracks detected",
+    "empty_title": "No VCD loaded",
+    "empty_sub": "Insert a disc or browse to a VCD folder, then click Scan VCD",
+    "scan_prog_folder": "Scanning folder: {name}...",
+    "scan_prog_read": "Reading metadata ({idx}/{total}): {name}",
+    "rip_prog_proc": "Processing {idx}/{total}: {name}",
+    "rip_prog_stop": "Stopped: {success}/{total} files saved",
+    "rip_prog_done": "Completed: {success}/{total} files ripped"
+  },
+  "console": {
+    "title": "  📋  Console Log",
+    "clear": "Clear"
+  },
+  "about": {
+    "title": "Setting",
+    "app": "Application",
+    "version": "Version",
+    "dev": "Developer",
+    "ffmpeg": "FFmpeg status",
+    "ffmpeg_path": "FFmpeg path",
+    "ready": "✓  Ready",
+    "not_found": "✗  Not Found",
+    "license": "MIT License",
+    "close": "Close"
+  },
+  "language": {
+    "title": "Language",
+    "en": "English",
+    "zh": "中文"
+  },
+  "appearance": {
+    "title": "Appearance",
+    "system": "System",
+    "light": "Light Mode",
+    "dark": "Dark Mode"
+  },
+  "scale": {
+    "title": "Scale",
+    "100": "100%",
+    "125": "125%",
+    "150": "150%",
+    "100%": "100%",
+    "125%": "125%",
+    "150%": "150%"
+  },
+  "rename": {
+    "title": "Rename file",
+    "inst": "Output filename (without extension):",
+    "apply": "Apply",
+    "cancel": "Cancel"
+  },
+  "batch": {
+    "title": "Batch Rename",
+    "header": "Batch Rename Files",
+    "inst": "Edit output filenames below (without extension):",
+    "track": "Track {n}:",
+    "apply_all": "Apply All",
+    "cancel": "Cancel",
+    "no_files_title": "No Files",
+    "no_files_msg": "No files to rename. Please scan a VCD first.",
+    "seq_enable": "Enable Sequential Numbering",
+    "seq_base": "Base Name:",
+    "seq_start": "Start Index:",
+    "seq_suffix": "Suffix:",
+    "seq_preview": "Preview:"
+  },
+  "messageboxes": {
+    "no_source_title": "No source",
+    "no_source_msg": "Please insert a VCD or browse to a VCD folder first.",
+    "invalid_path_title": "Invalid path",
+    "invalid_path_msg": "Path does not exist:\n{path}",
+    "no_files_title": "No files found",
+    "no_files_msg": "No VCD video files (.DAT) were found.\nMake sure you selected the root of a VCD disc or folder.",
+    "ffmpeg_req_title": "FFmpeg not found",
+    "ffmpeg_req_msg": "FFmpeg is required for audio extraction and video conversion.\n\nDownload from https://ffmpeg.org/download.html and ensure\nffmpeg.exe is in your PATH or in a 'ffmpeg/bin' folder next to this script.\n\nTip: Select 'DAT' video format to extract raw files without FFmpeg.",
+    "no_sel_title": "No selection",
+    "no_sel_msg": "No videos selected. Rip all videos?",
+    "no_vid_title": "No videos",
+    "no_vid_msg": "Please scan a VCD first.",
+    "stop_title": "Task Stopped",
+    "stop_msg": "Ripping task was stopped by user.\n\n{success} video(s) were saved to:\n{folder}",
+    "eject_title": "Eject Disc?",
+    "eject_msg": "Successfully ripped {success} file(s)!\n\nWould you like to eject the disc now?",
+    "err_title": "Completed with errors",
+    "err_msg": "Ripped {success} file(s) successfully.\n{errors} file(s) had errors — check the console log.",
+    "no_drive_title": "No Disc Drive",
+    "no_drive_msg": "No optical disc drive was detected.",
+    "eject_fail_title": "Eject Failed",
+    "eject_fail_msg": "Could not eject drive {drive}:\n{err}",
+    "ejecting": "Ejecting disc from drive {drive}:...",
+    "unsupported_disc_title": "Unsupported Disc Format",
+    "unsupported_disc_msg": "The detected optical disc is not a valid VCD (e.g., Audio CD or DVD). This app is specifically designed for VCD ripping.",
+    "timeout_title": "Disc Read Timeout",
+    "timeout_msg": "Ripping was stopped due to severely damaged disc sectors or read timeout. Partial video has been saved.",
+    "btn_ok": "OK",
+    "btn_eject": "Eject Disc"
+  },
+  "log": {
+    "non_vcd_blocked": "Disc detected in drive {drive}, type: {type}, blocking process.",
+    "vcd_auto": "VCD disc auto-detected at {drive}",
+    "vcd_found": "VCD structure found at {folder}",
+    "vcd_not_std": "Selected folder may not be a standard VCD (no .DAT files found). Scanning anyway...",
+    "scan_dir": "Scanning {path} …",
+    "no_vid": "No video files found in selected path.",
+    "found_files": "Found {total} file(s). Reading metadata…",
+    "loaded": "Loaded {total} video(s) from VCD. All selected.",
+    "out_set": "Output folder set: {folder}",
+    "cancel_req": "Cancellation requested by user… Stopping process.",
+    "start_ext": "Starting extraction of {total} file(s) → {fmt} format…",
+    "extracting": "Extracting: {name} → {out}",
+    "raw_dat_ok": "✓  Extracted raw DAT → Saved as: {name}  ({size} MB)",
+    "copy_err": "Direct copy error: {err}",
+    "saved_ok": "✓  Saved: {name}  ({size} MB)",
+    "saved_partial": "⚠  Preserved partial video: {name}  ({size} MB)",
+    "read_timeout": "Disc read timed out on {name} ({timeout}s without data). Terminating process.",
+    "ffmpeg_err": "FFmpeg error processing: {name}",
+    "exc": "Exception: {err}",
+    "stop_sum": "Extraction stopped by user. {success} file(s) completed.",
+    "done_ok": "All {success} file(s) ripped successfully! Output: {folder}",
+    "open_err": "Could not open output folder: {err}",
+    "done_err": "Completed with {errors} error(s). {success} file(s) saved to {folder}",
+    "cleared": "Disc information cleared.",
+    "cleared_all": "Cleared video files and progress.",
+    "eject_win32": "Disc ejected from drive {drive}: (DeviceIoControl)",
+    "eject_win32_fail": "DeviceIoControl eject failed: {err}",
+    "eject_ps": "Eject command sent to drive {drive}: (PowerShell)",
+    "eject_ps_fail": "PowerShell eject also failed: {err}",
+    "batch_renamed": "Batch renamed {total} file(s).",
+    "ffmpeg_dl": "FFmpeg not found! Download from https://ffmpeg.org and add to PATH.",
+    "ffmpeg_hint": "Or place ffmpeg.exe in a 'ffmpeg/bin' subfolder next to this script."
+  }
+}

@@ -7,6 +7,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import subprocess
 import threading
+import queue
+import atexit
 import os
 import sys
 import json
@@ -23,7 +25,7 @@ from datetime import datetime
 #  Constants & Colour Palette
 # ─────────────────────────────────────────────
 APP_NAME = "VCD Ripper Pro"
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.3.0"
 
 THEME_DARK = {
     "bg_dark":        "#0D0F14",
@@ -135,15 +137,50 @@ def apply_theme_palette(theme_name):
     if "MP3" in AUDIO_FORMATS:
         AUDIO_FORMATS["MP3"]["color"] = COLORS["warning"]
 
-FONTS = {
-    "title":   ("Segoe UI", 26, "bold"),
-    "heading": ("Segoe UI", 16, "bold"),
-    "subhead": ("Segoe UI", 13, "bold"),
-    "body":    ("Segoe UI", 12),
-    "small":   ("Segoe UI", 11),
-    "mono":    ("Consolas", 11),
-    "badge":   ("Segoe UI", 10, "bold"),
+BASE_FONTS = {
+    "title":       ("Segoe UI", 26, "bold"),
+    "heading":     ("Segoe UI", 16, "bold"),
+    "subhead":     ("Segoe UI", 13, "bold"),
+    "body":        ("Segoe UI", 12, "normal"),
+    "body_bold":   ("Segoe UI", 12, "bold"),
+    "small":       ("Segoe UI", 11, "normal"),
+    "small_bold":  ("Segoe UI", 11, "bold"),
+    "mono":        ("Consolas", 11, "normal"),
+    "badge":       ("Segoe UI", 10, "bold"),
+    "tiny":        ("Segoe UI", 10, "normal"),
+    "rename_btn":  ("Segoe UI", 18, "bold"),
+    "emoji_32":    ("Segoe UI Emoji", 32, "normal"),
+    "emoji_38":    ("Segoe UI Emoji", 38, "normal"),
+    "emoji_64":    ("Segoe UI Emoji", 64, "normal"),
 }
+
+FONTS = {k: (spec[0], spec[1], spec[2] if len(spec) > 2 else "normal") for k, spec in BASE_FONTS.items()}
+
+def scale_val(val, scale=None):
+    if scale is None:
+        try:
+            scale = i18n.get_scale_factor()
+        except Exception:
+            scale = 1.0
+    return max(1, int(round(val * scale)))
+
+def apply_font_scale(root, scale=1.0):
+    import tkinter.font as tkFont
+    for k, spec in BASE_FONTS.items():
+        fam, size = spec[0], spec[1]
+        weight = spec[2] if len(spec) > 2 else "normal"
+        scaled_size = max(8, int(round(size * scale)))
+        if k in FONTS and isinstance(FONTS[k], tkFont.Font):
+            try:
+                FONTS[k].configure(size=scaled_size)
+            except Exception:
+                pass
+        else:
+            try:
+                FONTS[k] = tkFont.Font(root, family=fam, size=scaled_size, weight=weight)
+            except Exception:
+                FONTS[k] = (fam, scaled_size, weight)
+
 
 VCD_DAT_PATHS = ["MPEGAV", "MPEG2"]   # folders inside VCD that hold .DAT files
 VCD_MARKER    = "VCD"                  # label to detect VCD type drives
@@ -201,6 +238,8 @@ TRANSLATIONS = {
         "header": {
             "title": "VCD Ripper Pro",
             "console": "📋  Console",
+            "clear_all": "🗑  Clear All",
+            "clear_all_tip": "Clear loaded video files and progress",
             "about": "⚙  Setting",
             "batch_rename": "✏  Batch Rename",
             "eject_disc": "⏏  Eject Disc",
@@ -292,6 +331,15 @@ TRANSLATIONS = {
             "light": "Light Mode",
             "dark": "Dark Mode",
         },
+        "scale": {
+            "title": "Scale",
+            "100": "100%",
+            "125": "125%",
+            "150": "150%",
+            "100%": "100%",
+            "125%": "125%",
+            "150%": "150%",
+        },
         "rename": {
             "title": "Rename file",
             "inst": "Output filename (without extension):",
@@ -337,8 +385,15 @@ TRANSLATIONS = {
             "eject_fail_title": "Eject Failed",
             "eject_fail_msg": "Could not eject drive {drive}:\n{err}",
             "ejecting": "Ejecting disc from drive {drive}:...",
+            "unsupported_disc_title": "Unsupported Disc Format",
+            "unsupported_disc_msg": "The detected optical disc is not a valid VCD (e.g., Audio CD or DVD). This app is specifically designed for VCD ripping.",
+            "timeout_title": "Disc Read Timeout",
+            "timeout_msg": "Ripping was stopped due to severely damaged disc sectors or read timeout. Partial video has been saved.",
+            "btn_ok": "OK",
+            "btn_eject": "Eject Disc",
         },
         "log": {
+            "non_vcd_blocked": "Disc detected in drive {drive}, type: {type}, blocking process.",
             "vcd_auto": "VCD disc auto-detected at {drive}",
             "vcd_found": "VCD structure found at {folder}",
             "vcd_not_std": "Selected folder may not be a standard VCD (no .DAT files found). Scanning anyway...",
@@ -353,6 +408,8 @@ TRANSLATIONS = {
             "raw_dat_ok": "✓  Extracted raw DAT → Saved as: {name}  ({size} MB)",
             "copy_err": "Direct copy error: {err}",
             "saved_ok": "✓  Saved: {name}  ({size} MB)",
+            "saved_partial": "⚠  Preserved partial video: {name}  ({size} MB)",
+            "read_timeout": "Disc read timed out on {name} ({timeout}s without data). Terminating process.",
             "ffmpeg_err": "FFmpeg error processing: {name}",
             "exc": "Exception: {err}",
             "stop_sum": "Extraction stopped by user. {success} file(s) completed.",
@@ -360,6 +417,7 @@ TRANSLATIONS = {
             "open_err": "Could not open output folder: {err}",
             "done_err": "Completed with {errors} error(s). {success} file(s) saved to {folder}",
             "cleared": "Disc information cleared.",
+            "cleared_all": "Cleared video files and progress.",
             "eject_win32": "Disc ejected from drive {drive}: (DeviceIoControl)",
             "eject_win32_fail": "DeviceIoControl eject failed: {err}",
             "eject_ps": "Eject command sent to drive {drive}: (PowerShell)",
@@ -373,6 +431,8 @@ TRANSLATIONS = {
         "header": {
             "title": "VCD Ripper Pro",
             "console": "📋  控制台",
+            "clear_all": "🗑  清空",
+            "clear_all_tip": "清空已加载的影片列表与进度",
             "about": "⚙  设置",
             "batch_rename": "✏  批量重命名",
             "eject_disc": "⏏  弹出光盘",
@@ -464,6 +524,15 @@ TRANSLATIONS = {
             "light": "浅色模式",
             "dark": "深色模式",
         },
+        "scale": {
+            "title": "界面缩放",
+            "100": "100%",
+            "125": "125%",
+            "150": "150%",
+            "100%": "100%",
+            "125%": "125%",
+            "150%": "150%",
+        },
         "rename": {
             "title": "重命名文件",
             "inst": "输出文件名 (不含扩展名)：",
@@ -509,8 +578,15 @@ TRANSLATIONS = {
             "eject_fail_title": "弹出失败",
             "eject_fail_msg": "无法弹出驱动器 {drive}:\n{err}",
             "ejecting": "正在从驱动器 {drive} 弹出光盘:...",
+            "unsupported_disc_title": "不支持的光盘格式",
+            "unsupported_disc_msg": "侦测到非 VCD 光盘（如音乐 CD 或 DVD）。本软件仅专门用于 VCD 光盘抓取与转换。",
+            "timeout_title": "光碟读取超时",
+            "timeout_msg": "由于光盘严重划伤或坏道导致读取超时，已停止提取。已为您保留已完成抓取的视频片段。",
+            "btn_ok": "确定",
+            "btn_eject": "弹出光碟",
         },
         "log": {
+            "non_vcd_blocked": "在驱动器 {drive} 检测到光盘，类型: {type}，已拦截处理流程。",
             "vcd_auto": "自动检测到 VCD 光盘于 {drive}",
             "vcd_found": "在 {folder} 找到 VCD 结构",
             "vcd_not_std": "所选文件夹可能不是标准 VCD (未找到 .DAT 文件)。仍将扫描...",
@@ -525,6 +601,8 @@ TRANSLATIONS = {
             "raw_dat_ok": "✓  已提取原始 DAT → 保存为：{name}  ({size} MB)",
             "copy_err": "直接复制错误：{err}",
             "saved_ok": "✓  已保存：{name}  ({size} MB)",
+            "saved_partial": "⚠  已保留部分视频片段：{name}  ({size} MB)",
+            "read_timeout": "读取光盘 {name} 超时（已停滞 {timeout} 秒）。正在终止进程。",
             "ffmpeg_err": "FFmpeg 处理错误：{name}",
             "exc": "异常：{err}",
             "stop_sum": "提取被用户停止。已完成 {success} 个文件。",
@@ -532,6 +610,7 @@ TRANSLATIONS = {
             "open_err": "无法打开输出文件夹：{err}",
             "done_err": "完成，共有 {errors} 个错误。{success} 个文件保存至 {folder}",
             "cleared": "光盘信息已清除。",
+            "cleared_all": "已清空影片列表与进度。",
             "eject_win32": "光盘已从驱动器 {drive} 弹出：(DeviceIoControl)",
             "eject_win32_fail": "DeviceIoControl 弹出失败：{err}",
             "eject_ps": "弹出命令已发送至驱动器 {drive}：(PowerShell)",
@@ -547,13 +626,31 @@ class I18n:
     def __init__(self):
         self.lang = "en"
         self.theme = "system"
+        self.scale = "100%"
         self._refresh_cb = None
         self._theme_cb = None
+        self._scale_cb = None
         self._load_config()
 
     def _load_config(self):
         try:
             exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            # Allow external json translation files (en.json, zh-CN.json) to override/extend translations
+            for lang_code, fname in (("en", "en.json"), ("zh_CN", "zh-CN.json"), ("zh_CN", "zh_CN.json")):
+                l_path = os.path.join(exe_dir, fname)
+                if os.path.exists(l_path):
+                    try:
+                        with open(l_path, "r", encoding="utf-8") as lf:
+                            loaded = json.load(lf)
+                            if lang_code in TRANSLATIONS and isinstance(loaded, dict):
+                                for section, s_data in loaded.items():
+                                    if isinstance(s_data, dict) and section in TRANSLATIONS[lang_code]:
+                                        TRANSLATIONS[lang_code][section].update(s_data)
+                                    else:
+                                        TRANSLATIONS[lang_code][section] = s_data
+                    except Exception:
+                        pass
+
             cfg_path = os.path.join(exe_dir, "config.json")
             if os.path.exists(cfg_path):
                 with open(cfg_path, "r", encoding="utf-8") as f:
@@ -562,6 +659,8 @@ class I18n:
                         self.lang = data["lang"]
                     if "theme" in data and data["theme"] in ("system", "light", "dark"):
                         self.theme = data["theme"]
+                    if "scale" in data and data["scale"] in ("100%", "125%", "150%"):
+                        self.scale = data["scale"]
         except Exception:
             pass
 
@@ -569,7 +668,7 @@ class I18n:
         try:
             exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
             cfg_path = os.path.join(exe_dir, "config.json")
-            data = {"lang": self.lang, "theme": self.theme}
+            data = {"lang": self.lang, "theme": self.theme, "scale": self.scale}
             with open(cfg_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception:
@@ -606,6 +705,17 @@ class I18n:
             if self._theme_cb:
                 self._theme_cb()
 
+    def get_scale_factor(self):
+        factors = {"100%": 1.0, "125%": 1.25, "150%": 1.5}
+        return factors.get(self.scale, 1.0)
+
+    def switch_scale(self, scale):
+        if scale in ("100%", "125%", "150%"):
+            self.scale = scale
+            self._save_config()
+            if self._scale_cb:
+                self._scale_cb(self.get_scale_factor())
+
     def get_effective_theme(self):
         if self.theme == "system":
             return get_windows_theme()
@@ -617,6 +727,9 @@ class I18n:
     def set_theme_callback(self, cb):
         self._theme_cb = cb
 
+    def set_scale_callback(self, cb):
+        self._scale_cb = cb
+
 i18n = I18n()
 apply_theme_palette(i18n.get_effective_theme())
 
@@ -625,11 +738,10 @@ def t(key, **kwargs):
 
 _APP_ICON_PHOTO = None
 _APP_ICON_ICO_PATH = None
-_HEADER_ICON_PHOTO_64 = None
+_HEADER_ICONS = {}
 
-def _get_header_icon_64():
-    global _HEADER_ICON_PHOTO_64
-    if _HEADER_ICON_PHOTO_64 is None:
+def get_header_icon(size=64):
+    if size not in _HEADER_ICONS:
         try:
             from PIL import Image, ImageTk
             _base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
@@ -637,13 +749,16 @@ def _get_header_icon_64():
             if not os.path.isfile(_png):
                 _png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CompactDisc.png")
             if os.path.isfile(_png):
-                img = Image.open(_png).convert("RGBA").resize((64, 64), Image.LANCZOS)
-                _HEADER_ICON_PHOTO_64 = ImageTk.PhotoImage(img)
+                img = Image.open(_png).convert("RGBA").resize((size, size), Image.LANCZOS)
+                _HEADER_ICONS[size] = ImageTk.PhotoImage(img)
             else:
-                _HEADER_ICON_PHOTO_64 = False
+                _HEADER_ICONS[size] = False
         except Exception:
-            _HEADER_ICON_PHOTO_64 = False
-    return _HEADER_ICON_PHOTO_64 if _HEADER_ICON_PHOTO_64 else None
+            _HEADER_ICONS[size] = False
+    return _HEADER_ICONS.get(size) if _HEADER_ICONS.get(size) else None
+
+def _get_header_icon_64():
+    return get_header_icon(scale_val(64))
 
 
 
@@ -678,6 +793,211 @@ def find_ffmpeg():
 
 
 # ─────────────────────────────────────────────
+#  Process Priority & Watchdog / Kill helpers
+# ─────────────────────────────────────────────
+BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+IDLE_PRIORITY_CLASS         = 0x00000040
+DISC_READ_TIMEOUT_SECONDS   = 20.0  # Trigger timeout if no progress for 20s
+GRACEFUL_TERMINATE_TIMEOUT  = 3.0   # Wait up to 3s for graceful exit before force kill
+
+def set_low_process_priority(proc):
+    """Set CPU priority to Below Normal and I/O priority to Low for a subprocess on Windows."""
+    if not proc or not hasattr(proc, "_handle"):
+        return
+    try:
+        ctypes.windll.kernel32.SetPriorityClass(int(proc._handle), BELOW_NORMAL_PRIORITY_CLASS)
+    except Exception:
+        pass
+    try:
+        # ProcessIoPriority = 0x21 (33). Values: 0 = Very Low, 1 = Low, 2 = Normal
+        io_priority = ctypes.c_ulong(1)  # Low I/O Priority
+        ctypes.windll.ntdll.NtSetInformationProcess(
+            int(proc._handle), 33, ctypes.byref(io_priority), ctypes.sizeof(io_priority)
+        )
+    except Exception:
+        pass
+
+def kill_process_tree(proc, force=False):
+    """Terminate or force kill a subprocess and its entire process tree on Windows."""
+    if not proc or proc.poll() is not None:
+        return
+    pid = getattr(proc, "pid", None)
+    if not force:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    else:
+        if pid:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            except Exception:
+                pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+def terminate_and_kill(proc, graceful_timeout=3.0):
+    """Gracefully terminate with SIGTERM/terminate, then force kill after graceful_timeout seconds."""
+    if not proc or proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+
+    deadline = time.time() + graceful_timeout
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return
+        time.sleep(0.1)
+
+    if proc.poll() is None:
+        kill_process_tree(proc, force=True)
+
+
+# ─────────────────────────────────────────────
+#  Single-Instance Lock & Window Activation helpers
+# ─────────────────────────────────────────────
+SINGLE_INSTANCE_MUTEX_NAME = "Global\\VCD_Ripper_Pro_Unique_Mutex_Lock"
+_APP_MUTEX_HANDLE = None
+
+def acquire_single_instance_lock(name=SINGLE_INSTANCE_MUTEX_NAME):
+    """
+    Attempt to acquire a system-level named mutex lock on Windows.
+    Returns True if this is the first/only running instance.
+    Returns False if another instance is already running.
+    """
+    global _APP_MUTEX_HANDLE
+    if sys.platform != "win32":
+        return True
+
+    ERROR_ALREADY_EXISTS = 183
+    ERROR_ACCESS_DENIED = 5
+
+    try:
+        # Try Global\ namespace first
+        handle = ctypes.windll.kernel32.CreateMutexW(None, True, name)
+        err = ctypes.windll.kernel32.GetLastError()
+
+        # Fallback to Local\ namespace if permissions restrict Global\
+        if not handle and err == ERROR_ACCESS_DENIED:
+            fallback_name = "Local\\" + name.replace("Global\\", "")
+            handle = ctypes.windll.kernel32.CreateMutexW(None, True, fallback_name)
+            err = ctypes.windll.kernel32.GetLastError()
+
+        if err == ERROR_ALREADY_EXISTS:
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+            return False  # An instance is already running
+
+        _APP_MUTEX_HANDLE = handle
+        return True
+    except Exception:
+        # If mutex creation fails for unexpected OS reasons, do not block app startup
+        return True
+
+def release_single_instance_lock():
+    """Release and close the named mutex handle upon application termination."""
+    global _APP_MUTEX_HANDLE
+    if _APP_MUTEX_HANDLE:
+        try:
+            ctypes.windll.kernel32.ReleaseMutex(_APP_MUTEX_HANDLE)
+        except Exception:
+            pass
+        try:
+            ctypes.windll.kernel32.CloseHandle(_APP_MUTEX_HANDLE)
+        except Exception:
+            pass
+        _APP_MUTEX_HANDLE = None
+
+atexit.register(release_single_instance_lock)
+
+def find_existing_window():
+    """Find the HWND of the currently running VCD Ripper Pro main window."""
+    if sys.platform != "win32":
+        return None
+
+    user32 = ctypes.windll.user32
+    found_hwnd = [None]
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def enum_cb(hwnd, lparam):
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length > 0:
+            buff = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buff, length + 1)
+            title = buff.value
+            # Match top-level main window whose title starts with APP_NAME ("VCD Ripper Pro")
+            if title.startswith(APP_NAME):
+                owner = user32.GetWindow(hwnd, 4)  # GW_OWNER = 4
+                if owner == 0 or not user32.IsWindow(owner):
+                    found_hwnd[0] = hwnd
+                    return False
+        return True
+
+    proc = WNDENUMPROC(enum_cb)
+    # Retry briefly up to 1 second in case the primary window is still being rendered
+    for _ in range(10):
+        user32.EnumWindows(proc, 0)
+        if found_hwnd[0]:
+            break
+        time.sleep(0.1)
+
+    return found_hwnd[0]
+
+def activate_existing_window(hwnd=None):
+    """Restore if minimized and bring existing window to the foreground."""
+    if sys.platform != "win32":
+        return False
+
+    if not hwnd:
+        hwnd = find_existing_window()
+    if not hwnd:
+        return False
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+
+    SW_SHOWNORMAL = 1
+    SW_RESTORE = 9
+
+    # If window is minimized (iconic), restore it
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    else:
+        user32.ShowWindow(hwnd, SW_SHOWNORMAL)
+
+    # Bring to foreground reliably using AttachThreadInput
+    try:
+        foreground_hwnd = user32.GetForegroundWindow()
+        foreground_thread_id = user32.GetWindowThreadProcessId(foreground_hwnd, None)
+        current_thread_id = kernel32.GetCurrentThreadId()
+
+        if foreground_thread_id != current_thread_id:
+            user32.AttachThreadInput(foreground_thread_id, current_thread_id, True)
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.AttachThreadInput(foreground_thread_id, current_thread_id, False)
+        else:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+    except Exception:
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+
+    return True
+
+
+# ─────────────────────────────────────────────
 #  VCD / Drive detection helpers
 # ─────────────────────────────────────────────
 def get_cd_drives():
@@ -698,19 +1018,117 @@ def get_cd_drives():
     return drives
 
 
+class DiscCheckResult:
+    """Represents disc type inspection result with dual tuple / bool support."""
+    def __init__(self, is_vcd: bool, disc_type: str, details: str = ""):
+        self.is_vcd = bool(is_vcd)
+        self.disc_type = str(disc_type)
+        self.details = str(details)
+
+    def __bool__(self):
+        return self.is_vcd
+
+    def __iter__(self):
+        return iter((self.is_vcd, self.disc_type))
+
+    def __getitem__(self, index):
+        return (self.is_vcd, self.disc_type)[index]
+
+    def __repr__(self):
+        return f"DiscCheckResult(is_vcd={self.is_vcd}, disc_type={self.disc_type!r}, details={self.details!r})"
+
+
+def is_vcd_disc(drive_path) -> DiscCheckResult:
+    """
+    Robust, fast check if the given path/drive contains a valid VCD disc.
+    Prioritizes checking standard MPEGAV/VCD directories and .DAT files
+    without deep file tree scanning to avoid optical drive IO blocking.
+    Returns DiscCheckResult(is_vcd: bool, disc_type: str).
+    """
+    if not drive_path:
+        return DiscCheckResult(False, "No Disc", "Empty path")
+
+    try:
+        p = Path(drive_path)
+        if not p.exists() or not p.is_dir():
+            return DiscCheckResult(False, "No Disc", "Path does not exist or is not a directory")
+
+        # Fast shallow inspection of root entries only - avoids recursive tree traversal
+        try:
+            root_entries = list(p.iterdir())
+        except (PermissionError, OSError):
+            return DiscCheckResult(False, "Unreadable Disc", "Cannot read root directory")
+
+        if not root_entries:
+            return DiscCheckResult(False, "Empty Disc", "No files found on drive")
+
+        # Map uppercase entry names for case-insensitive lookup
+        names_map = {e.name.upper(): e for e in root_entries}
+
+        # 1. Primary VCD check: MPEGAV or MPEG2 directories
+        for vcd_dir in ("MPEGAV", "MPEG2"):
+            if vcd_dir in names_map and names_map[vcd_dir].is_dir():
+                try:
+                    for item in names_map[vcd_dir].iterdir():
+                        if item.is_file() and item.suffix.upper() == ".DAT":
+                            return DiscCheckResult(True, "VCD", f"Found {item.name} in {vcd_dir}")
+                except (PermissionError, OSError):
+                    pass
+                return DiscCheckResult(True, "VCD", f"Found {vcd_dir} directory")
+
+        # Check standard VCD metadata directory (White Book specification)
+        if "VCD" in names_map and names_map["VCD"].is_dir():
+            try:
+                sub_names = {item.name.upper() for item in names_map["VCD"].iterdir() if item.is_file()}
+                if any(vcd_meta in sub_names for vcd_meta in ("INFO.VCD", "ENTRIES.VCD", "LOT.VCD", "PSD.VCD")):
+                    return DiscCheckResult(True, "VCD", "Found standard VCD metadata directory")
+            except (PermissionError, OSError):
+                pass
+            return DiscCheckResult(True, "VCD", "Found VCD directory")
+
+        # Check for .DAT video/audio tracks directly in root
+        for e in root_entries:
+            try:
+                if e.is_file() and e.suffix.upper() == ".DAT":
+                    return DiscCheckResult(True, "VCD", f"Found root DAT file: {e.name}")
+            except (PermissionError, OSError):
+                pass
+
+        # Check other VCD markers from VCD_DAT_PATHS (e.g. SEGMENT)
+        for sub in VCD_DAT_PATHS:
+            sub_u = sub.upper()
+            if sub_u in names_map and names_map[sub_u].is_dir():
+                try:
+                    for item in names_map[sub_u].iterdir():
+                        if item.is_file() and item.suffix.upper() == ".DAT":
+                            return DiscCheckResult(True, "VCD", f"Found DAT file in {sub}")
+                except (PermissionError, OSError):
+                    pass
+
+        # 2. Identify common non-VCD optical disc formats
+        # DVD-Video (VIDEO_TS / AUDIO_TS)
+        if "VIDEO_TS" in names_map or "AUDIO_TS" in names_map:
+            return DiscCheckResult(False, "DVD-Video", "Found DVD-Video structure (VIDEO_TS)")
+
+        # Blu-ray (BDMV / CERTIFICATE)
+        if "BDMV" in names_map or "CERTIFICATE" in names_map:
+            return DiscCheckResult(False, "Blu-ray", "Found Blu-ray structure (BDMV)")
+
+        # Audio CD (CD-DA tracks mapped as .cda files on Windows)
+        cda_files = [e for e in root_entries if e.is_file() and e.suffix.lower() == ".cda"]
+        if cda_files:
+            return DiscCheckResult(False, "Audio CD", f"Found {len(cda_files)} Audio CD track(s)")
+
+        # 3. Non-VCD Data Disc
+        return DiscCheckResult(False, "Data CD/DVD", "No VCD directory structure or .DAT files found")
+
+    except Exception as exc:
+        return DiscCheckResult(False, "Unknown Disc", f"Inspection error: {exc}")
+
+
 def is_vcd_folder(path):
     """Return True if the given path looks like a VCD structure."""
-    path = Path(path)
-    # Classic VCD: has MPEGAV or MPEG2 folder with .DAT files
-    for sub in VCD_DAT_PATHS:
-        sub_path = path / sub
-        if sub_path.is_dir():
-            if list(sub_path.glob("*.DAT")) or list(sub_path.glob("*.dat")):
-                return True
-    # Also accept if the path itself contains .DAT files
-    if list(path.glob("*.DAT")) or list(path.glob("*.dat")):
-        return True
-    return False
+    return bool(is_vcd_disc(path))
 
 
 def find_dat_files(base_path):
@@ -746,6 +1164,91 @@ def find_dat_files(base_path):
     return found
 
 
+def get_subprocess_env():
+    """Return a copy of os.environ with UTF-8 encoding configured for child processes."""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
+def sanitize_filename(name: str, fallback: str = "track") -> str:
+    """
+    Sanitize a filename or track/label string for safe filesystem usage on Windows/cross-platform.
+    Removes or replaces invalid characters (< > : " / \\ | ? * and control chars),
+    strips trailing dots and spaces, handles reserved Windows names, and falls back if empty.
+    """
+    if not name or not isinstance(name, str):
+        return fallback
+
+    # Replace colons and slashes with clean separators
+    s = name.replace(":", " - ").replace("/", "_").replace("\\", "_")
+    # Replace Windows illegal characters: < > : " / \ | ? * and ASCII control characters 0x00-0x1F, 0x7F
+    s = re.sub(r'[\<\>\:"/\\\|\?\*\x00-\x1f\x7f]', '_', s)
+    # Remove unicode replacement char or undefined characters
+    s = s.replace("\ufffd", "_")
+    # Collapse multiple consecutive underscores or spaces
+    s = re.sub(r'_+', '_', s)
+    s = re.sub(r'\s+', ' ', s)
+    # Strip leading/trailing spaces and dots (forbidden by Windows filesystem)
+    s = s.strip(" .")
+
+    if not s:
+        return fallback
+
+    # Check for reserved Windows filenames (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    p = Path(s)
+    stem_upper = p.stem.upper()
+    reserved_names = {
+        "CON", "PRN", "AUX", "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10))
+    }
+    if stem_upper in reserved_names:
+        s = f"{p.stem}_file{p.suffix}"
+
+    # Avoid overly long filenames (max 200 chars for safety)
+    if len(s) > 200:
+        s = s[:200].rstrip(" .")
+
+    return s if s else fallback
+
+
+def sanitize_path(path_str: str) -> str:
+    """Sanitize a full file path by normalizing directory and sanitizing filename."""
+    if not path_str:
+        return ""
+    try:
+        p = Path(path_str)
+        safe_name = sanitize_filename(p.name)
+        if p.parent and str(p.parent) != ".":
+            return str(p.parent / safe_name)
+        return safe_name
+    except Exception:
+        return path_str
+
+
+def get_volume_label(path: str) -> str:
+    """Return the sanitized volume label of a drive or directory on Windows, or empty string."""
+    try:
+        drive = os.path.splitdrive(os.path.abspath(path))[0]
+        if drive:
+            if not drive.endswith("\\"):
+                drive += "\\"
+            vol_buf = ctypes.create_unicode_buffer(261)
+            ok = ctypes.windll.kernel32.GetVolumeInformationW(
+                ctypes.c_wchar_p(drive),
+                vol_buf,
+                len(vol_buf),
+                None, None, None, None, 0
+            )
+            if ok and vol_buf.value:
+                return sanitize_filename(vol_buf.value.strip())
+    except Exception:
+        pass
+    return ""
+
+
 def probe_video(ffprobe_path, file_path):
     """Use ffprobe to get video metadata. Returns dict or None."""
     try:
@@ -756,13 +1259,20 @@ def probe_video(ffprobe_path, file_path):
             file_path
         ]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=15,
-            creationflags=subprocess.CREATE_NO_WINDOW
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=get_subprocess_env(),
+            timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
         )
-        data = json.loads(result.stdout)
+        data = json.loads(result.stdout) if (result.stdout and result.stdout.strip()) else {}
+        clean_filename = sanitize_filename(Path(file_path).name, fallback="track")
         info = {
             "path":     file_path,
-            "filename": Path(file_path).name,
+            "filename": clean_filename,
             "size_mb":  round(os.path.getsize(file_path) / 1024**2, 1),
             "duration": 0,
             "width":    0,
@@ -773,10 +1283,25 @@ def probe_video(ffprobe_path, file_path):
         }
         fmt = data.get("format", {})
         if "duration" in fmt:
-            info["duration"] = float(fmt["duration"])
+            try:
+                info["duration"] = float(fmt["duration"])
+            except (ValueError, TypeError):
+                info["duration"] = 0
         if "bit_rate" in fmt:
-            br = int(fmt["bit_rate"])
-            info["bitrate"] = f"{br // 1000} kbps"
+            try:
+                br = int(fmt["bit_rate"])
+                info["bitrate"] = f"{br // 1000} kbps"
+            except (ValueError, TypeError):
+                pass
+
+        # Extract and sanitize title/metadata tags if available
+        tags = fmt.get("tags", {}) if isinstance(fmt, dict) else {}
+        for k in ("title", "TITLE", "Title"):
+            if k in tags and tags[k]:
+                clean_title = sanitize_filename(str(tags[k]).strip())
+                if clean_title:
+                    info["title"] = clean_title
+                    break
 
         for stream in data.get("streams", []):
             if stream.get("codec_type") == "video":
@@ -793,10 +1318,16 @@ def probe_video(ffprobe_path, file_path):
                 break
         return info
     except Exception:
+        safe_name = sanitize_filename(Path(file_path).name, fallback="track")
+        size = 0.0
+        try:
+            size = round(os.path.getsize(file_path) / 1024**2, 1)
+        except Exception:
+            pass
         return {
             "path":     file_path,
-            "filename": Path(file_path).name,
-            "size_mb":  round(os.path.getsize(file_path) / 1024**2, 1),
+            "filename": safe_name,
+            "size_mb":  size,
             "duration": 0, "width": 0, "height": 0,
             "codec": "VCD", "fps": "29 fps", "bitrate": "~1150 kbps",
         }
@@ -821,27 +1352,34 @@ class Tooltip:
         self.widget = widget
         self.text   = text
         self.tip    = None
-        widget.bind("<Enter>", self.show)
-        widget.bind("<Leave>", self.hide)
+        widget.bind("<Enter>", self.show, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
 
     def show(self, _=None):
-        x, y, _, _ = self.widget.bbox("insert") if hasattr(self.widget, "bbox") else (0, 0, 0, 0)
-        x += self.widget.winfo_rootx() + 20
-        y += self.widget.winfo_rooty() + 20
-        self.tip = tk.Toplevel(self.widget)
-        self.tip.wm_overrideredirect(True)
-        self.tip.wm_geometry(f"+{x}+{y}")
-        lbl = tk.Label(
-            self.tip, text=self.text,
-            bg=COLORS["bg_hover"], fg=COLORS["text_primary"],
-            font=FONTS["small"], padx=8, pady=4,
-            relief="flat", bd=0
-        )
-        lbl.pack()
+        if self.tip or not self.text:
+            return
+        try:
+            x = self.widget.winfo_rootx() + 10
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+            self.tip = tk.Toplevel(self.widget)
+            self.tip.wm_overrideredirect(True)
+            self.tip.wm_geometry(f"+{x}+{y}")
+            lbl = tk.Label(
+                self.tip, text=self.text,
+                bg=COLORS["bg_hover"], fg=COLORS["text_primary"],
+                font=FONTS["small"], padx=8, pady=4,
+                relief="flat", bd=0
+            )
+            lbl.pack()
+        except Exception:
+            pass
 
     def hide(self, _=None):
         if self.tip:
-            self.tip.destroy()
+            try:
+                self.tip.destroy()
+            except Exception:
+                pass
             self.tip = None
 
 
@@ -908,7 +1446,7 @@ class FlatButton(tk.Frame):
         label_text = f"{icon}  {text}" if icon else text
         self._lbl = tk.Label(
             self, text=label_text, font=FONTS["subhead"],
-            bg=bg, fg=fg, padx=16, pady=11
+            bg=bg, fg=fg, padx=scale_val(16), pady=scale_val(11)
         )
         self._lbl.pack(fill="both", expand=True)
         if width:
@@ -980,7 +1518,7 @@ class VideoCard(tk.Frame):
 
     def _build(self):
         # Checkbox column
-        self._chk_frame = tk.Frame(self, bg=COLORS["bg_card"], width=56)
+        self._chk_frame = tk.Frame(self, bg=COLORS["bg_card"], width=scale_val(56))
         self._chk_frame.pack(side="left", fill="y")
         self._chk_frame.pack_propagate(False)
         self._chk_var = tk.BooleanVar(value=False)
@@ -994,7 +1532,7 @@ class VideoCard(tk.Frame):
         self._chk.place(relx=0.5, rely=0.5, anchor="center")
 
         # Content
-        self._content_frame = tk.Frame(self, bg=COLORS["bg_card"], padx=14, pady=14)
+        self._content_frame = tk.Frame(self, bg=COLORS["bg_card"], padx=scale_val(14), pady=scale_val(14))
         self._content_frame.pack(side="left", fill="both", expand=True)
 
         # Row 1: filename + size badge
@@ -1009,13 +1547,13 @@ class VideoCard(tk.Frame):
         self._size_lbl = tk.Label(
             self._row1, text=f"{self.info['size_mb']} MB",
             font=FONTS["badge"], bg=COLORS["accent_dim"],
-            fg=COLORS.get("badge_fg", COLORS["text_primary"]), padx=8, pady=3
+            fg=COLORS.get("badge_fg", COLORS["text_primary"]), padx=scale_val(8), pady=scale_val(3)
         )
-        self._size_lbl.pack(side="right", padx=(0, 4))
+        self._size_lbl.pack(side="right", padx=(0, scale_val(4)))
 
         # Row 2: metadata
         self._row2 = tk.Frame(self._content_frame, bg=COLORS["bg_card"])
-        self._row2.pack(fill="x", pady=(6, 0))
+        self._row2.pack(fill="x", pady=(scale_val(6), 0))
         meta = (
             f"⏱  {format_duration(self.info['duration'])}     "
             f"📐 {self.info['width']}×{self.info['height']}     "
@@ -1030,13 +1568,13 @@ class VideoCard(tk.Frame):
         # Rename button (right side) — larger, visible accent color
         self._rename_btn = tk.Button(
             self, text="✏",
-            font=("Segoe UI", 18, "bold"), bg=COLORS["bg_card"],
+            font=FONTS["rename_btn"], bg=COLORS["bg_card"],
             fg=COLORS.get("rename_btn", "#38BDF8"), relief="flat", bd=0,
             cursor="hand2", activebackground=COLORS["bg_hover"],
             activeforeground=COLORS.get("rename_btn_hover", "#7DD3FC"),
             command=self._on_rename
         )
-        self._rename_btn.pack(side="right", padx=(0, 14), pady=0)
+        self._rename_btn.pack(side="right", padx=(0, scale_val(14)), pady=0)
 
     def _bind_all(self):
         for w in self.winfo_children():
@@ -1135,8 +1673,9 @@ class VideoCard(tk.Frame):
         def apply():
             new_stem = entry_var.get().strip()
             if new_stem:
-                self.info["custom_stem"] = new_stem
-                self._filename_lbl.configure(text=f"📼  {new_stem}")
+                clean_stem = sanitize_filename(new_stem, fallback=stem)
+                self.info["custom_stem"] = clean_stem
+                self._filename_lbl.configure(text=f"📼  {clean_stem}")
             dlg.destroy()
 
         self._rename_apply_btn = tk.Button(
@@ -1204,11 +1743,16 @@ class LogConsole(tk.Frame):
         ts = datetime.now().strftime("%H:%M:%S")
         icons = {"info": "●", "success": "✓", "warning": "⚠", "error": "✗", "accent": "►"}
         icon = icons.get(level, "●")
-        line = f"[{ts}]  {icon}  {message}\n"
-        self._text.configure(state="normal")
-        self._text.insert("end", line, level)
-        self._text.see("end")
-        self._text.configure(state="disabled")
+        # Ensure message is safely encoded/decoded with UTF-8 and errors replaced
+        safe_msg = str(message).encode("utf-8", errors="replace").decode("utf-8")
+        line = f"[{ts}]  {icon}  {safe_msg}\n"
+        try:
+            self._text.configure(state="normal")
+            self._text.insert("end", line, level)
+            self._text.see("end")
+            self._text.configure(state="disabled")
+        except Exception:
+            pass
 
     def clear(self):
         self._text.configure(state="normal")
@@ -1343,14 +1887,16 @@ class VCDRipperApp(tk.Tk):
         super().__init__()
         self.title(f"{t('header.title')}  v{APP_VERSION}")
         self.configure(bg=COLORS["bg_dark"])
-        self.geometry("1360x920")
-        self.minsize(1100, 750)
 
         # DPI awareness
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
+
+        # Apply fonts and window scale
+        apply_font_scale(self, i18n.get_scale_factor())
+        self._apply_window_scale()
 
         # State
         self._videos: list[dict] = []
@@ -1377,9 +1923,12 @@ class VCDRipperApp(tk.Tk):
         # Windows taskbar progress
         self._taskbar_progress = WindowsTaskbarProgress(self)
         self._about_dialog     = None
+        self._last_non_vcd_drive = None
+        self._unsupported_dlg_open = False
 
         i18n.set_refresh_callback(self._refresh_ui)
         i18n.set_theme_callback(self._on_theme_changed)
+        i18n.set_scale_callback(self._on_scale_changed)
 
         # FFmpeg
         self._ffmpeg, self._ffprobe = find_ffmpeg()
@@ -1387,6 +1936,22 @@ class VCDRipperApp(tk.Tk):
         self._build_ui()
         self._apply_ttk_styles()
         self._start_drive_poll()
+
+    def _apply_window_scale(self):
+        s = i18n.get_scale_factor()
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        target_w = min(int(round(1360 * s)), screen_w - 40)
+        target_h = min(int(round(920 * s)), screen_h - 80)
+        min_w = min(int(round(1100 * s)), screen_w - 60)
+        min_h = min(int(round(750 * s)), screen_h - 100)
+        self.minsize(min_w, min_h)
+        self.geometry(f"{target_w}x{target_h}")
+
+    def _on_scale_changed(self, scale_factor):
+        apply_font_scale(self, scale_factor)
+        self._apply_window_scale()
+        self._rebuild_ui()
 
         # App icon — works for both plain Python and PyInstaller onedir
         self._set_window_icon(self)
@@ -1419,6 +1984,13 @@ class VCDRipperApp(tk.Tk):
             self._title_lbl.configure(bg=COLORS["bg_panel"], fg=COLORS["text_primary"])
         if hasattr(self, "_version_lbl"):
             self._version_lbl.configure(bg=COLORS["bg_panel"], fg=COLORS["text_muted"])
+        if hasattr(self, "_clear_all_btn"):
+            self._clear_all_btn.configure(
+                bg=COLORS["bg_card"],
+                fg=COLORS["text_muted"] if self._ripping else COLORS["text_secondary"],
+                activebackground=COLORS["bg_hover"],
+                activeforeground=COLORS["accent"]
+            )
         if hasattr(self, "_console_btn"):
             self._console_btn.configure(
                 bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
@@ -1686,8 +2258,10 @@ class VCDRipperApp(tk.Tk):
             log_shown = (self._log_window.state() != "withdrawn" and self._log_window.state() != "iconic")
             self._log_window.destroy()
 
-        # Destroy all direct child widgets of root
+        # Destroy all direct child widgets of root (preserving _about_dialog if open)
         for child in self.winfo_children():
+            if hasattr(self, "_about_dialog") and self._about_dialog and child == self._about_dialog:
+                continue
             child.destroy()
 
         # Set root window background
@@ -1737,10 +2311,16 @@ class VCDRipperApp(tk.Tk):
         # Refresh all localized text & drive status
         self._refresh_ui()
 
+        # Update about dialog scale if open
+        if hasattr(self, "_about_dialog") and self._about_dialog and self._about_dialog.winfo_exists():
+            if hasattr(self._about_dialog, "update_scale"):
+                self._about_dialog.update_scale()
+            self._about_dialog.lift()
+
     # ── UI Construction ──────────────────────
     def _build_ui(self):
         # ── Header bar ──────────────────────
-        self._header = tk.Frame(self, bg=COLORS["bg_panel"], height=68)
+        self._header = tk.Frame(self, bg=COLORS["bg_panel"], height=scale_val(68))
         self._header.pack(fill="x", side="top")
         self._header.pack_propagate(False)
         header = self._header
@@ -1750,27 +2330,41 @@ class VCDRipperApp(tk.Tk):
             font=FONTS["title"], bg=COLORS["bg_panel"],
             fg=COLORS["text_primary"]
         )
-        self._title_lbl.pack(side="left", padx=28, pady=0)
+        self._title_lbl.pack(side="left", padx=scale_val(28), pady=0)
 
         self._version_lbl = tk.Label(
             header, text=f"v{APP_VERSION}",
             font=FONTS["body"], bg=COLORS["bg_panel"],
             fg=COLORS["text_muted"]
         )
-        self._version_lbl.pack(side="left", pady=(16, 0))
+        self._version_lbl.pack(side="left", pady=(scale_val(16), 0))
 
-        # Console Log button (Far Right)
+        # Clear All button (Far Right, immediately right of Console Log)
+        self._clear_all_btn = tk.Button(
+            header, text=t('header.clear_all'),
+            font=FONTS["badge"],
+            bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
+            activebackground=COLORS["bg_hover"],
+            activeforeground=COLORS["accent"],
+            relief="flat", bd=0, padx=scale_val(14), pady=scale_val(6),
+            cursor="hand2",
+            command=self._clear_all_action
+        )
+        self._clear_all_btn.pack(side="right", padx=(scale_val(6), scale_val(24)))
+        self._clear_all_tip = Tooltip(self._clear_all_btn, t('header.clear_all_tip'))
+
+        # Console Log button (Immediately left of Clear All)
         self._console_btn = tk.Button(
             header, text=t('header.console'),
             font=FONTS["badge"],
             bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
             activebackground=COLORS["bg_hover"],
             activeforeground=COLORS["accent"],
-            relief="flat", bd=0, padx=14, pady=6,
+            relief="flat", bd=0, padx=scale_val(14), pady=scale_val(6),
             cursor="hand2",
             command=self._toggle_console
         )
-        self._console_btn.pack(side="right", padx=(6, 24))
+        self._console_btn.pack(side="right", padx=scale_val(6))
 
         # Setting button
         self._about_btn = tk.Button(
@@ -1779,11 +2373,11 @@ class VCDRipperApp(tk.Tk):
             bg=COLORS["bg_card"], fg=COLORS["text_secondary"],
             activebackground=COLORS["bg_hover"],
             activeforeground=COLORS["accent"],
-            relief="flat", bd=0, padx=14, pady=6,
+            relief="flat", bd=0, padx=scale_val(14), pady=scale_val(6),
             cursor="hand2",
             command=self._show_about
         )
-        self._about_btn.pack(side="right", padx=6)
+        self._about_btn.pack(side="right", padx=scale_val(6))
 
         # Batch Rename button
         self._batch_rename_btn = tk.Button(
@@ -1792,11 +2386,11 @@ class VCDRipperApp(tk.Tk):
             bg=COLORS["bg_card"], fg=COLORS["accent"],
             activebackground=COLORS["bg_hover"],
             activeforeground=COLORS["accent_hover"],
-            relief="flat", bd=0, padx=14, pady=6,
+            relief="flat", bd=0, padx=scale_val(14), pady=scale_val(6),
             cursor="hand2",
             command=self._batch_rename
         )
-        self._batch_rename_btn.pack(side="right", padx=6)
+        self._batch_rename_btn.pack(side="right", padx=scale_val(6))
 
         # Eject Disc button
         self._eject_btn = tk.Button(
@@ -1805,11 +2399,11 @@ class VCDRipperApp(tk.Tk):
             bg=COLORS["bg_card"], fg=COLORS["warning"],
             activebackground=COLORS["bg_hover"],
             activeforeground=COLORS["warning"],
-            relief="flat", bd=0, padx=14, pady=6,
+            relief="flat", bd=0, padx=scale_val(14), pady=scale_val(6),
             cursor="hand2",
             command=self._eject_disc
         )
-        self._eject_btn.pack(side="right", padx=6)
+        self._eject_btn.pack(side="right", padx=scale_val(6))
 
         # Drive status indicator
         self._drive_lbl = tk.Label(
@@ -1817,7 +2411,7 @@ class VCDRipperApp(tk.Tk):
             font=FONTS["badge"], bg=COLORS["bg_panel"],
             fg=COLORS["text_muted"]
         )
-        self._drive_lbl.pack(side="right", padx=(20, 6))
+        self._drive_lbl.pack(side="right", padx=(scale_val(20), scale_val(6)))
 
         # ── Main layout (full height) ────────────────
         self._top_frame = tk.Frame(self, bg=COLORS["bg_dark"])
@@ -1825,7 +2419,7 @@ class VCDRipperApp(tk.Tk):
         top_frame = self._top_frame
 
         # ── Left sidebar (Source & Selection) ──
-        self._left_sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=280)
+        self._left_sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=scale_val(280))
         self._left_sidebar.pack(side="left", fill="y")
         self._left_sidebar.pack_propagate(False)
         left_sidebar = self._left_sidebar
@@ -1853,14 +2447,14 @@ class VCDRipperApp(tk.Tk):
         self._build_content(self._content_container)
 
         # ── Right sidebar (Output Format, Output Folder, Rip Controls) ──
-        self._right_sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=420)
+        self._right_sidebar = tk.Frame(top_frame, bg=COLORS["bg_panel"], width=scale_val(420))
         self._right_sidebar.pack(side="right", fill="y")
         self._right_sidebar.pack_propagate(False)
         right_sidebar = self._right_sidebar
 
         # Fixed bottom container for "Start Ripping" and "Stop Ripping" buttons
         self._right_bottom_frame = tk.Frame(right_sidebar, bg=COLORS["bg_panel"])
-        self._right_bottom_frame.pack(side="bottom", fill="x", padx=16, pady=16)
+        self._right_bottom_frame.pack(side="bottom", fill="x", padx=scale_val(16), pady=scale_val(16))
 
         self._rip_btn = FlatButton(
             self._right_bottom_frame, text=t('rip.start'), icon="⚡",
@@ -1897,14 +2491,14 @@ class VCDRipperApp(tk.Tk):
         self._log_window = tk.Toplevel(self)
         self._log_window.title("Console Log — VCD Ripper Pro")
         self._log_window.configure(bg=COLORS["bg_dark"])
-        self._log_window.geometry("700x400")
+        self._log_window.geometry(f"{scale_val(700)}x{scale_val(400)}")
         self._log_window.protocol("WM_DELETE_WINDOW", self._log_window.withdraw)
         self._log_window.withdraw()  # Start hidden
 
         # Set icon on log window
         self._set_window_icon(self._log_window)
 
-        self._log_header = tk.Frame(self._log_window, bg=COLORS["bg_panel"], height=36)
+        self._log_header = tk.Frame(self._log_window, bg=COLORS["bg_panel"], height=scale_val(36))
         self._log_header.pack(fill="x")
         self._log_header.pack_propagate(False)
         self._console_title_lbl = tk.Label(
@@ -1941,7 +2535,7 @@ class VCDRipperApp(tk.Tk):
         detect_card = self._detect_card
 
         self._detect_icon = tk.Label(
-            detect_card, text="💿", font=("Segoe UI Emoji", 32),
+            detect_card, text="💿", font=FONTS["emoji_32"],
             bg=COLORS["bg_card"]
         )
         self._detect_icon.pack(pady=(14, 0))
@@ -1980,7 +2574,7 @@ class VCDRipperApp(tk.Tk):
         self._path_lbl = tk.Label(
             parent, textvariable=self._vcd_path,
             font=FONTS["mono"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_muted"], wraplength=240,
+            fg=COLORS["text_muted"], wraplength=scale_val(240),
             justify="left"
         )
         self._path_lbl.pack(fill="x", padx=20, pady=(6, 0))
@@ -2033,7 +2627,7 @@ class VCDRipperApp(tk.Tk):
         self._video_mode_rb = tk.Radiobutton(
             mode_card, text=t('format.video_mode'),
             variable=self._output_mode, value="video",
-            font=("Segoe UI", 11, "bold"),
+            font=FONTS["small_bold"],
             bg=COLORS["bg_card"], fg=COLORS["accent"],
             selectcolor=COLORS["bg_dark"],
             activebackground=COLORS["bg_card"],
@@ -2046,7 +2640,7 @@ class VCDRipperApp(tk.Tk):
         self._audio_mode_rb = tk.Radiobutton(
             mode_card, text=t('format.audio_mode'),
             variable=self._output_mode, value="audio",
-            font=("Segoe UI", 11, "bold"),
+            font=FONTS["small_bold"],
             bg=COLORS["bg_card"], fg=COLORS["success"],
             selectcolor=COLORS["bg_dark"],
             activebackground=COLORS["bg_card"],
@@ -2066,7 +2660,7 @@ class VCDRipperApp(tk.Tk):
 
         self._video_fmt_lbl = tk.Label(
             self._video_panel, text=t('format.video_lbl'),
-            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_panel"],
+            font=FONTS["small_bold"], bg=COLORS["bg_panel"],
             fg=COLORS["text_secondary"]
         )
         self._video_fmt_lbl.pack(anchor="w", padx=20, pady=(8, 4))
@@ -2088,7 +2682,7 @@ class VCDRipperApp(tk.Tk):
             rb = tk.Radiobutton(
                 item_frame, text=fmt,
                 variable=self._output_format, value=fmt,
-                font=("Segoe UI", 12, "bold"),
+                font=FONTS["body_bold"],
                 bg=COLORS["bg_card"],
                 fg=info["color"],
                 selectcolor=COLORS["bg_panel"],
@@ -2102,7 +2696,7 @@ class VCDRipperApp(tk.Tk):
             desc_key = f"format.{fmt.lower()}_desc"
             desc_lbl = tk.Label(
                 item_frame, text=t(desc_key),
-                font=("Segoe UI", 10), bg=COLORS["bg_card"],
+                font=FONTS["tiny"], bg=COLORS["bg_card"],
                 fg=COLORS["text_secondary"], justify="left"
             )
             desc_lbl.pack(anchor="w", padx=(28, 0), pady=(1, 0))
@@ -2116,7 +2710,7 @@ class VCDRipperApp(tk.Tk):
 
         self._dat_mode_lbl = tk.Label(
             self._dat_suboption_frame, text=t('format.dat_mode_lbl'),
-            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            font=FONTS["small_bold"], bg=COLORS["bg_card"],
             fg=COLORS["text_secondary"]
         )
         self._dat_mode_lbl.pack(anchor="w", padx=14, pady=(8, 4))
@@ -2128,7 +2722,7 @@ class VCDRipperApp(tk.Tk):
         self._dat_raw_rb = tk.Radiobutton(
             rb_row, text=t('format.dat_raw'),
             variable=self._dat_rename_mp4, value=False,
-            font=("Segoe UI", 11), bg=COLORS["bg_card"],
+            font=FONTS["small"], bg=COLORS["bg_card"],
             fg=COLORS["text_primary"],
             selectcolor=COLORS["bg_panel"],
             activebackground=COLORS["bg_card"],
@@ -2139,7 +2733,7 @@ class VCDRipperApp(tk.Tk):
         self._dat_mp4_rb = tk.Radiobutton(
             rb_row, text=t('format.dat_mp4'),
             variable=self._dat_rename_mp4, value=True,
-            font=("Segoe UI", 11), bg=COLORS["bg_card"],
+            font=FONTS["small"], bg=COLORS["bg_card"],
             fg=COLORS["text_primary"],
             selectcolor=COLORS["bg_panel"],
             activebackground=COLORS["bg_card"],
@@ -2154,7 +2748,7 @@ class VCDRipperApp(tk.Tk):
 
         self._res_title_lbl = tk.Label(
             self._res_suboption_frame, text=t('format.res_title'),
-            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            font=FONTS["small_bold"], bg=COLORS["bg_card"],
             fg=COLORS["text_secondary"]
         )
         self._res_title_lbl.pack(anchor="w", padx=14, pady=(8, 4))
@@ -2166,7 +2760,7 @@ class VCDRipperApp(tk.Tk):
         self._res_orig_rb = tk.Radiobutton(
             res_rb_row, text=t('format.res_orig'),
             variable=self._use_1080p, value=False,
-            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            font=FONTS["small_bold"], bg=COLORS["bg_card"],
             fg=COLORS["text_primary"],
             selectcolor=COLORS["bg_panel"],
             activebackground=COLORS["bg_card"],
@@ -2177,7 +2771,7 @@ class VCDRipperApp(tk.Tk):
         self._res_1080p_rb = tk.Radiobutton(
             res_rb_row, text=t('format.res_1080p'),
             variable=self._use_1080p, value=True,
-            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_card"],
+            font=FONTS["small_bold"], bg=COLORS["bg_card"],
             fg=COLORS["text_primary"],
             selectcolor=COLORS["bg_panel"],
             activebackground=COLORS["bg_card"],
@@ -2191,7 +2785,7 @@ class VCDRipperApp(tk.Tk):
 
         self._audio_fmt_lbl = tk.Label(
             self._audio_panel, text=t('format.audio_lbl'),
-            font=("Segoe UI", 11, "bold"), bg=COLORS["bg_panel"],
+            font=FONTS["small_bold"], bg=COLORS["bg_panel"],
             fg=COLORS["text_secondary"]
         )
         self._audio_fmt_lbl.pack(anchor="w", padx=20, pady=(8, 4))
@@ -2213,7 +2807,7 @@ class VCDRipperApp(tk.Tk):
             arb = tk.Radiobutton(
                 aitem_frame, text=afmt,
                 variable=self._audio_format, value=afmt,
-                font=("Segoe UI", 12, "bold"),
+                font=FONTS["body_bold"],
                 bg=COLORS["bg_card"],
                 fg=ainfo["color"],
                 selectcolor=COLORS["bg_panel"],
@@ -2227,7 +2821,7 @@ class VCDRipperApp(tk.Tk):
             desc_key = f"format.{afmt.lower()}_desc"
             adesc_lbl = tk.Label(
                 aitem_frame, text=t(desc_key),
-                font=("Segoe UI", 10), bg=COLORS["bg_card"],
+                font=FONTS["tiny"], bg=COLORS["bg_card"],
                 fg=COLORS["text_secondary"], justify="left"
             )
             adesc_lbl.pack(anchor="w", padx=(28, 0), pady=(1, 0))
@@ -2251,7 +2845,7 @@ class VCDRipperApp(tk.Tk):
         self._out_lbl = tk.Label(
             parent, textvariable=self._output_folder,
             font=FONTS["mono"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_muted"], wraplength=360,
+            fg=COLORS["text_muted"], wraplength=scale_val(360),
             justify="left"
         )
         self._out_lbl.pack(fill="x", padx=20, pady=(6, 4))
@@ -2259,7 +2853,7 @@ class VCDRipperApp(tk.Tk):
         self._auto_open_chk = tk.Checkbutton(
             parent, text=t('output.auto_open'),
             variable=self._auto_open_folder,
-            font=("Segoe UI", 11), bg=COLORS["bg_panel"],
+            font=FONTS["small"], bg=COLORS["bg_panel"],
             fg=COLORS["text_primary"],
             selectcolor=COLORS["bg_dark"],
             activebackground=COLORS["bg_panel"],
@@ -2269,7 +2863,7 @@ class VCDRipperApp(tk.Tk):
 
     def _build_content(self, parent):
         # ── Title bar ───────────────────────
-        self._content_title_bar = tk.Frame(parent, bg=COLORS["bg_dark"], height=56)
+        self._content_title_bar = tk.Frame(parent, bg=COLORS["bg_dark"], height=scale_val(56))
         self._content_title_bar.pack(fill="x")
         self._content_title_bar.pack_propagate(False)
         title_bar = self._content_title_bar
@@ -2318,7 +2912,7 @@ class VCDRipperApp(tk.Tk):
         self._empty_frame.pack(fill="both", expand=True, pady=100)
         self._empty_icon_lbl = tk.Label(
             self._empty_frame, text="💿",
-            font=("Segoe UI Emoji", 64),
+            font=FONTS["emoji_64"],
             bg=COLORS["bg_dark"]
         )
         self._empty_icon_lbl.pack()
@@ -2431,47 +3025,112 @@ class VCDRipperApp(tk.Tk):
 
     # ── Drive polling ─────────────────────────
     def _start_drive_poll(self):
+        self._poll_in_flight = False
         self._poll_drives()
 
     def _poll_drives(self):
-        drives = get_cd_drives()
-        if drives:
-            detected = []
-            for d in drives:
-                if is_vcd_folder(d):
-                    detected.append(d)
-            if detected:
-                drive = detected[0]
-                if self._vcd_path.get() != drive:
-                    self._vcd_path.set(drive)
-                    self._detected_drive_lbl.configure(text=t('drive.drive_label').format(drive=drive[0]))
-                    self._detect_label.configure(
-                        text=t('drive.detect_vcd'), fg=COLORS["success"]
-                    )
-                    self._drive_lbl.configure(
-                        text=t('header.vcd_on').format(drive=drive[0]),
-                        fg=COLORS["success"]
-                    )
-                    self._log.log(t('log.vcd_auto').format(drive=drive), "success")
-                    self.after(500, self._scan_vcd)  # Auto-scan after short delay
-            else:
+        if self._poll_job:
+            try:
+                self.after_cancel(self._poll_job)
+            except Exception:
+                pass
+            self._poll_job = None
+
+        if getattr(self, "_poll_in_flight", False) or self._ripping:
+            self._poll_job = self.after(3000, self._poll_drives)
+            return
+
+        self._poll_in_flight = True
+
+        def _bg_poll():
+            try:
+                drives = get_cd_drives()
+                vcd_drives = []
+                non_vcd_drives = []
                 if drives:
-                    self._drive_lbl.configure(
-                        text=t('header.drive_no_vcd').format(drive=drives[0][0]),
-                        fg=COLORS["warning"]
-                    )
+                    for d in drives:
+                        check = is_vcd_disc(d)
+                        if check.is_vcd:
+                            vcd_drives.append((d, check))
+                        elif check.disc_type not in ("No Disc", "Empty Disc", "Unreadable Disc"):
+                            non_vcd_drives.append((d, check))
+
+                theme_changed = False
+                current_effective = None
+                if i18n.theme == "system" and not self._ripping:
+                    current_effective = i18n.get_effective_theme()
+                    expected_bg = THEME_LIGHT["bg_dark"] if current_effective == "light" else THEME_DARK["bg_dark"]
+                    if COLORS["bg_dark"] != expected_bg:
+                        theme_changed = True
+
+                self.after(0, lambda: self._apply_poll_results(drives, vcd_drives, non_vcd_drives, theme_changed, current_effective))
+            except Exception:
+                pass
+            finally:
+                self._poll_in_flight = False
+                self.after(0, lambda: setattr(self, "_poll_job", self.after(3000, self._poll_drives)))
+
+        threading.Thread(target=_bg_poll, daemon=True).start()
+
+    def _apply_poll_results(self, drives, vcd_drives, non_vcd_drives, theme_changed, current_effective):
+        if self._ripping:
+            return
+
+        if vcd_drives:
+            drive, check = vcd_drives[0]
+            self._last_non_vcd_drive = None
+            if self._vcd_path.get() != drive:
+                self._vcd_path.set(drive)
+                vol_name = get_volume_label(drive)
+                if vol_name:
+                    self._batch_base_name = vol_name
+                self._detected_drive_lbl.configure(text=t('drive.drive_label').format(drive=drive[0]))
+                self._detect_label.configure(
+                    text=t('drive.detect_vcd'), fg=COLORS["success"]
+                )
+                self._drive_lbl.configure(
+                    text=t('header.vcd_on').format(drive=drive[0]),
+                    fg=COLORS["success"]
+                )
+                log_text = f"{drive} [{vol_name}]" if vol_name else drive
+                self._log.log(t('log.vcd_auto').format(drive=log_text), "success")
+                self.after(500, self._scan_vcd)  # Auto-scan after short delay
+        elif non_vcd_drives:
+            drive, check = non_vcd_drives[0]
+            self._drive_lbl.configure(
+                text=f"💿  {drive[0]}: ({check.disc_type})",
+                fg=COLORS["warning"]
+            )
+            self._detected_drive_lbl.configure(text=t('drive.drive_label').format(drive=drive[0]))
+            self._detect_label.configure(
+                text=f"{check.disc_type}", fg=COLORS["warning"]
+            )
+            if self._last_non_vcd_drive != drive:
+                self._last_non_vcd_drive = drive
+                self._vcd_path.set(drive)
+                log_msg = t('log.non_vcd_blocked').format(drive=drive, type=check.disc_type)
+                if log_msg == 'log.non_vcd_blocked':
+                    log_msg = f"Disc detected in drive {drive}, type: {check.disc_type}, blocking process."
+                self._log.log(log_msg, "warning")
+                self._show_unsupported_disc_dialog(drive, check.disc_type)
         else:
-            self._drive_lbl.configure(text=t('header.no_disc'), fg=COLORS["text_muted"])
+            self._last_non_vcd_drive = None
+            if drives:
+                self._drive_lbl.configure(
+                    text=t('header.drive_no_vcd').format(drive=drives[0][0]),
+                    fg=COLORS["warning"]
+                )
+            else:
+                self._drive_lbl.configure(text=t('header.no_disc'), fg=COLORS["text_muted"])
+            current_p = self._vcd_path.get()
+            if current_p and any(current_p.upper().startswith(d[0].upper()) for d in drives):
+                if not self._ripping:
+                    self._clear_disc_info()
 
         # Auto-detect Windows theme changes in system mode
-        if i18n.theme == "system" and not self._ripping:
-            current_effective = i18n.get_effective_theme()
-            expected_bg = THEME_LIGHT["bg_dark"] if current_effective == "light" else THEME_DARK["bg_dark"]
-            if COLORS["bg_dark"] != expected_bg:
-                apply_theme_palette(current_effective)
-                self._on_theme_changed()
-
-        self._poll_job = self.after(3000, self._poll_drives)
+        if theme_changed and current_effective:
+            apply_theme_palette(current_effective)
+            self._on_theme_changed()
 
     # ── Actions ───────────────────────────────
     def _show_about(self):
@@ -2494,13 +3153,13 @@ class VCDRipperApp(tk.Tk):
         dlg.resizable(False, False)
         self._set_window_icon(dlg)
         dlg.grab_set()
-        dlg_w, dlg_h = 530, 440
+        dlg_w, dlg_h = scale_val(540), scale_val(490)
         dlg.geometry(f"{dlg_w}x{dlg_h}")
 
         # Center the dialog over the main window
         self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width()  - dlg_w) // 2
-        y = self.winfo_y() + (self.winfo_height() - dlg_h) // 2
+        x = max(0, self.winfo_x() + (self.winfo_width()  - dlg_w) // 2)
+        y = max(0, self.winfo_y() + (self.winfo_height() - dlg_h) // 2)
         dlg.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
 
         try:
@@ -2514,20 +3173,20 @@ class VCDRipperApp(tk.Tk):
         header_frame.pack(fill="x")
 
         header_inner = tk.Frame(header_frame, bg=COLORS["bg_dark"])
-        header_inner.pack(fill="x", padx=32, pady=20)
+        header_inner.pack(fill="x", padx=scale_val(32), pady=scale_val(20))
 
         # 1. Software icon on the left
         header_icon = _get_header_icon_64()
         if header_icon:
             lbl_img = tk.Label(header_inner, image=header_icon, bg=COLORS["bg_dark"])
             lbl_img.image = header_icon
-            lbl_img.pack(side="left", padx=(0, 16))
+            lbl_img.pack(side="left", padx=(0, scale_val(16)))
         else:
             lbl_img = tk.Label(
-                header_inner, text="💿", font=("Segoe UI Emoji", 38),
+                header_inner, text="💿", font=FONTS["emoji_38"],
                 bg=COLORS["bg_dark"]
             )
-            lbl_img.pack(side="left", padx=(0, 16))
+            lbl_img.pack(side="left", padx=(0, scale_val(16)))
 
         # Right side of icon: text container
         header_text = tk.Frame(header_inner, bg=COLORS["bg_dark"])
@@ -2539,7 +3198,7 @@ class VCDRipperApp(tk.Tk):
 
         lbl_app_name = tk.Label(
             title_row, text=APP_NAME,
-            font=("Segoe UI", 16, "bold"),
+            font=FONTS["heading"],
             bg=COLORS["bg_dark"], fg=COLORS["text_primary"]
         )
         lbl_app_name.pack(side="left")
@@ -2603,7 +3262,43 @@ class VCDRipperApp(tk.Tk):
             btn.pack(side="left", padx=(0, 6 if idx < len(modes) - 1 else 0))
             theme_buttons[m_key] = btn
 
-        # 2. Language row
+        # 2. Scale row (placed right below Appearance)
+        row_scale = tk.Frame(body_frame, bg=COLORS["bg_panel"])
+        row_scale.pack(fill="x", pady=6)
+
+        lbl_scale_title = tk.Label(
+            row_scale, text=t('scale.title'), font=FONTS["small"],
+            bg=COLORS["bg_panel"], fg=COLORS["text_muted"],
+            width=16, anchor="w"
+        )
+        lbl_scale_title.pack(side="left")
+
+        scale_btn_frame = tk.Frame(row_scale, bg=COLORS["bg_panel"])
+        scale_btn_frame.pack(side="left")
+
+        scale_buttons = {}
+        scales = [
+            ("100%", t('scale.100')),
+            ("125%", t('scale.125')),
+            ("150%", t('scale.150')),
+        ]
+        for idx, (s_key, s_label) in enumerate(scales):
+            is_active = (i18n.scale == s_key)
+            s_bg = COLORS["accent"] if is_active else COLORS["bg_card"]
+            s_fg = COLORS.get("btn_primary_fg", "#FFFFFF") if is_active else COLORS["text_secondary"]
+            btn = tk.Button(
+                scale_btn_frame, text=s_label, font=FONTS["small"],
+                width=11,
+                bg=s_bg, fg=s_fg,
+                relief="flat", bd=0, padx=2, pady=3,
+                cursor="hand2" if not self._ripping else "",
+                state="normal" if not self._ripping else "disabled",
+                command=lambda sk=s_key: set_scale(sk)
+            )
+            btn.pack(side="left", padx=(0, 6 if idx < len(scales) - 1 else 0))
+            scale_buttons[s_key] = btn
+
+        # 3. Language row
         row_language = tk.Frame(body_frame, bg=COLORS["bg_panel"])
         row_language.pack(fill="x", pady=6)
 
@@ -2710,6 +3405,10 @@ class VCDRipperApp(tk.Tk):
             theme_buttons["system"].configure(text=t('appearance.system'))
             theme_buttons["light"].configure(text=t('appearance.light'))
             theme_buttons["dark"].configure(text=t('appearance.dark'))
+            lbl_scale_title.configure(text=t('scale.title'))
+            scale_buttons["100%"].configure(text=t('scale.100'))
+            scale_buttons["125%"].configure(text=t('scale.125'))
+            scale_buttons["150%"].configure(text=t('scale.150'))
             lbl_lang_title.configure(text=t('language.title'))
             lbl_ffmpeg_title.configure(text=t('about.ffmpeg'))
             lbl_ffmpeg_status.configure(text=t('about.ready') if self._ffmpeg else t('about.not_found'))
@@ -2760,6 +3459,20 @@ class VCDRipperApp(tk.Tk):
                     activeforeground=m_fg
                 )
 
+            row_scale.configure(bg=COLORS["bg_panel"])
+            lbl_scale_title.configure(bg=COLORS["bg_panel"], fg=COLORS["text_muted"])
+            scale_btn_frame.configure(bg=COLORS["bg_panel"])
+
+            for sk, btn in scale_buttons.items():
+                is_act = (i18n.scale == sk)
+                s_bg = COLORS["accent"] if is_act else COLORS["bg_card"]
+                s_fg = COLORS.get("btn_primary_fg", "#FFFFFF") if is_act else COLORS["text_secondary"]
+                btn.configure(
+                    bg=s_bg, fg=s_fg,
+                    activebackground=COLORS["accent_hover"] if is_act else COLORS["bg_hover"],
+                    activeforeground=s_fg
+                )
+
             row_language.configure(bg=COLORS["bg_panel"])
             lbl_lang_title.configure(bg=COLORS["bg_panel"], fg=COLORS["text_muted"])
             btn_lang_frame.configure(bg=COLORS["bg_panel"])
@@ -2797,14 +3510,48 @@ class VCDRipperApp(tk.Tk):
                 activeforeground=COLORS.get("btn_primary_fg", "#FFFFFF")
             )
 
+        def update_dlg_scale():
+            dlg.update_idletasks()
+            dw = scale_val(540)
+            dh = scale_val(490)
+            rx = self.winfo_x()
+            ry = self.winfo_y()
+            rw = self.winfo_width()
+            rh = self.winfo_height()
+            nx = max(0, rx + (rw - dw) // 2)
+            ny = max(0, ry + (rh - dh) // 2)
+            dlg.geometry(f"{dw}x{dh}+{nx}+{ny}")
+
+            new_icon = _get_header_icon_64()
+            if new_icon:
+                lbl_img.configure(image=new_icon)
+                lbl_img.image = new_icon
+
+            for sk, btn in scale_buttons.items():
+                is_act = (i18n.scale == sk)
+                s_bg = COLORS["accent"] if is_act else COLORS["bg_card"]
+                s_fg = COLORS.get("btn_primary_fg", "#FFFFFF") if is_act else COLORS["text_secondary"]
+                btn.configure(
+                    bg=s_bg, fg=s_fg,
+                    activebackground=COLORS["accent_hover"] if is_act else COLORS["bg_hover"],
+                    activeforeground=s_fg
+                )
+
         dlg.update_theme = update_dlg_theme
         dlg.update_lang = update_dlg_lang
+        dlg.update_scale = update_dlg_scale
 
         def set_appearance(mode):
             if self._ripping:
                 return
             i18n.switch_theme(mode)
             update_dlg_theme()
+
+        def set_scale(sk):
+            if self._ripping:
+                return
+            i18n.switch_scale(sk)
+            update_dlg_scale()
 
         def set_lang(l):
             i18n.switch(l)
@@ -2815,23 +3562,32 @@ class VCDRipperApp(tk.Tk):
 
     def _browse_source(self):
         folder = filedialog.askdirectory(title="Select VCD folder")
-        if folder:
-            self._vcd_path.set(folder)
-            if is_vcd_folder(folder):
-                self._log.log(t('log.vcd_found').format(folder=folder), "success")
-                self._detect_label.configure(text=t('drive.folder_selected'), fg=COLORS["success"])
-            else:
-                self._log.log(
-                    t('log.vcd_not_std'), "warning"
-                )
+        if not folder:
+            return
+        self._vcd_path.set(folder)
+        self._detect_label.configure(text=t('drive.detecting'), fg=COLORS["accent"])
+        def check_bg():
+            check = is_vcd_disc(folder)
+            self.after(0, lambda: self._apply_browse_check(folder, check))
+        threading.Thread(target=check_bg, daemon=True).start()
+
+    def _apply_browse_check(self, folder, check):
+        if check.is_vcd:
+            self._last_non_vcd_drive = None
+            self._log.log(t('log.vcd_found').format(folder=folder), "success")
+            self._detect_label.configure(text=t('drive.folder_selected'), fg=COLORS["success"])
+        else:
+            log_msg = t('log.non_vcd_blocked').format(drive=folder, type=check.disc_type)
+            if log_msg == 'log.non_vcd_blocked':
+                log_msg = f"Disc detected in drive {folder}, type: {check.disc_type}, blocking process."
+            self._log.log(log_msg, "warning")
+            self._detect_label.configure(text=f"{check.disc_type}", fg=COLORS["warning"])
+            self._show_unsupported_disc_dialog(folder, check.disc_type)
 
     def _scan_vcd(self):
         path = self._vcd_path.get().strip()
         if not path:
             messagebox.showwarning(t('messageboxes.no_source_title'), t('messageboxes.no_source_msg'))
-            return
-        if not os.path.isdir(path):
-            messagebox.showerror(t('messageboxes.invalid_path_title'), t('messageboxes.invalid_path_msg').format(path=path))
             return
 
         self._videos.clear()
@@ -2839,22 +3595,11 @@ class VCDRipperApp(tk.Tk):
         self._log.log(t('log.scan_dir').format(path=path), "accent")
 
         # Show scan progress bar
-        self._scan_progress_lbl.configure(text=t('content.scan_prog_folder').format(name=Path(path).name))
+        self._scan_progress_lbl.configure(text=t('content.scan_prog_folder').format(name=path))
         self._scan_progress_pct.configure(text="0%")
         self._scan_progress_var.set(0)
         self._scan_progress_frame.pack(fill="x", padx=8, pady=(0, 4))
         self._scan_progress_bar.pack(fill="x", padx=8, pady=(0, 8))
-
-        def do_scan():
-            files = find_dat_files(path)
-            if not files:
-                # Fallback: look for any video-like files
-                exts = [".dat", ".mpg", ".mpeg", ".vob", ".mp4", ".avi"]
-                for ext in exts:
-                    files.extend(
-                        str(p) for p in Path(path).rglob(f"*{ext}")
-                    )
-            return files
 
         def after_scan(files):
             if not files:
@@ -2886,7 +3631,7 @@ class VCDRipperApp(tk.Tk):
                     else:
                         info = {
                             "path":     f,
-                            "filename": fname,
+                            "filename": sanitize_filename(fname),
                             "size_mb":  round(os.path.getsize(f) / 1024**2, 1),
                             "duration": 0, "width": 352, "height": 240,
                             "codec": "MPEG1", "fps": "29 fps", "bitrate": "~1150 kbps",
@@ -2909,10 +3654,46 @@ class VCDRipperApp(tk.Tk):
 
             threading.Thread(target=probe_all, daemon=True).start()
 
-        threading.Thread(
-            target=lambda: self.after(0, lambda: after_scan(do_scan())),
-            daemon=True
-        ).start()
+        def do_scan_bg():
+            if not os.path.isdir(path):
+                self.after(0, lambda: (
+                    self._scan_progress_frame.pack_forget(),
+                    self._scan_progress_bar.pack_forget(),
+                    messagebox.showerror(t('messageboxes.invalid_path_title'), t('messageboxes.invalid_path_msg').format(path=path))
+                ))
+                return
+
+            folder_display = get_volume_label(path) or Path(path).name or path
+            self.after(0, lambda: self._scan_progress_lbl.configure(
+                text=t('content.scan_prog_folder').format(name=folder_display)
+            ))
+
+            # Validate disc format - intercept non-VCD discs
+            check = is_vcd_disc(path)
+            if not check.is_vcd:
+                def handle_non_vcd():
+                    self._scan_progress_frame.pack_forget()
+                    self._scan_progress_bar.pack_forget()
+                    log_msg = t('log.non_vcd_blocked').format(drive=path, type=check.disc_type)
+                    if log_msg == 'log.non_vcd_blocked':
+                        log_msg = f"Disc detected in drive {path}, type: {check.disc_type}, blocking process."
+                    self._log.log(log_msg, "warning")
+                    self._show_unsupported_disc_dialog(path, check.disc_type)
+                self.after(0, handle_non_vcd)
+                return
+
+            files = find_dat_files(path)
+            if not files:
+                # Fallback: look for any video-like files
+                exts = [".dat", ".mpg", ".mpeg", ".vob", ".mp4", ".avi"]
+                for ext in exts:
+                    try:
+                        files.extend(str(p) for p in Path(path).rglob(f"*{ext}"))
+                    except Exception:
+                        pass
+            self.after(0, lambda: after_scan(files))
+
+        threading.Thread(target=do_scan_bg, daemon=True).start()
 
     def _populate_list(self, infos):
         self._videos = infos
@@ -3006,7 +3787,7 @@ class VCDRipperApp(tk.Tk):
         self._log.log(t('log.cancel_req'), "warning")
         if self._current_proc and self._current_proc.poll() is None:
             try:
-                self._current_proc.terminate()
+                kill_process_tree(self._current_proc, force=True)
             except Exception:
                 pass
         self._stop_btn.configure_state(False)
@@ -3062,6 +3843,12 @@ class VCDRipperApp(tk.Tk):
 
         self._rip_btn.configure_state(False)
         self._stop_btn.configure_state(True)
+        if hasattr(self, "_clear_all_btn"):
+            self._clear_all_btn.configure(
+                state="disabled",
+                fg=COLORS["text_muted"],
+                cursor=""
+            )
         self._progress_bar.pack(fill="x", padx=8, pady=(0, 8))
         self._progress_var.set(0)
         self._taskbar_progress.set_value(0, 100)
@@ -3081,6 +3868,13 @@ class VCDRipperApp(tk.Tk):
         success = 0
         errors  = 0
         was_cancelled = False
+        was_timed_out = False
+
+        # Ensure destination directory exists
+        try:
+            os.makedirs(out_folder, exist_ok=True)
+        except Exception:
+            pass
 
         # Calculate total duration for time-based progress
         total_duration = sum(v.get("duration", 0) for v in videos)
@@ -3093,6 +3887,7 @@ class VCDRipperApp(tk.Tk):
 
             raw_stem = Path(video["filename"]).stem
             stem = video.get("custom_stem") or raw_stem
+            stem = sanitize_filename(stem, fallback=f"track_{i+1}")
             # For DAT video: use .dat or .mp4 based on user sub-option
             if fmt == "DAT" and self._output_mode.get() == "video":
                 out_ext = ".mp4" if self._dat_rename_mp4.get() else ".dat"
@@ -3105,6 +3900,7 @@ class VCDRipperApp(tk.Tk):
             if os.path.exists(out_path):
                 base, ext = os.path.splitext(out_path)
                 out_path  = f"{base}_{int(time.time())}{ext}"
+                out_name  = os.path.basename(out_path)
 
             # Update progress label with current file info
             if total_duration > 0:
@@ -3124,25 +3920,64 @@ class VCDRipperApp(tk.Tk):
             ))
 
             if fmt == "DAT" and self._output_mode.get() == "video":
-                # Direct binary file copy without FFmpeg
+                # Direct binary file copy without FFmpeg (with watchdog & queue)
                 try:
                     src_path = video["path"]
                     chunk_size = 1024 * 1024  # 1MB chunk
                     file_cancelled = False
+                    dat_timed_out = False
                     src_size = os.path.getsize(src_path)
                     video_dur = video.get("duration", 0)
                     bytes_copied = 0
-                    with open(src_path, "rb") as fsrc, open(out_path, "wb") as fdst:
+
+                    chunk_queue = queue.Queue(maxsize=8)
+                    stop_reader = threading.Event()
+
+                    def dat_reader():
+                        try:
+                            with open(src_path, "rb") as fsrc:
+                                while not stop_reader.is_set():
+                                    buf = fsrc.read(chunk_size)
+                                    if not buf:
+                                        chunk_queue.put(None)
+                                        break
+                                    chunk_queue.put(buf)
+                        except Exception as read_ex:
+                            chunk_queue.put(read_ex)
+
+                    reader_t = threading.Thread(target=dat_reader, daemon=True)
+                    reader_t.start()
+
+                    last_heartbeat = time.time()
+                    with open(out_path, "wb") as fdst:
                         while True:
                             if self._cancel_requested:
+                                stop_reader.set()
                                 file_cancelled = True
                                 break
-                            buf = fsrc.read(chunk_size)
-                            if not buf:
+
+                            try:
+                                item = chunk_queue.get(timeout=0.2)
+                            except queue.Empty:
+                                if time.time() - last_heartbeat > DISC_READ_TIMEOUT_SECONDS:
+                                    stop_reader.set()
+                                    dat_timed_out = True
+                                    was_timed_out = True
+                                    self.after(0, lambda v=video: self._log.log(
+                                        t('log.read_timeout').format(name=v['filename'], timeout=int(DISC_READ_TIMEOUT_SECONDS)),
+                                        "warning"
+                                    ))
+                                    break
+                                continue
+
+                            if item is None:
                                 break
-                            fdst.write(buf)
-                            bytes_copied += len(buf)
-                            # Update progress based on bytes
+                            if isinstance(item, Exception):
+                                raise item
+
+                            last_heartbeat = time.time()
+                            fdst.write(item)
+                            bytes_copied += len(item)
                             if src_size > 0 and total_duration > 0:
                                 file_progress = (bytes_copied / src_size) * video_dur
                                 overall = (completed_duration + file_progress) / total_duration * 100
@@ -3161,6 +3996,15 @@ class VCDRipperApp(tk.Tk):
                                 pass
                         break
 
+                    if dat_timed_out:
+                        # Keep partial file for damaged disc
+                        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                            part_size = round(os.path.getsize(out_path) / 1024**2, 1)
+                            self.after(0, lambda n=out_name, s=part_size: self._log.log(
+                                t('log.saved_partial').format(name=n, size=s), "warning"
+                            ))
+                        break
+
                     size = round(os.path.getsize(out_path) / 1024**2, 1)
                     success += 1
                     completed_duration += video.get("duration", 0)
@@ -3173,8 +4017,7 @@ class VCDRipperApp(tk.Tk):
                         t('log.copy_err').format(err=err), "error"
                     ))
             else:
-                # Use FFmpeg to convert/rip video
-                # Build args — optionally inject 1080p downscale filter
+                # Use FFmpeg to convert/rip video with error tolerance and low priority
                 ffmpeg_args = list(fmt_cfg["args"])
                 if use_1080p and fmt in ("MP4", "MOV"):
                     # Upscale VCD (352x240 / 352x288) to 1440x1080 (4:3 at 1080p)
@@ -3182,8 +4025,12 @@ class VCDRipperApp(tk.Tk):
                     ffmpeg_args = ["-vf", "scale=1440:1080:flags=lanczos"] + ffmpeg_args
                 cmd = [
                     self._ffmpeg,
+                    "-nostdin",
+                    "-err_detect", "ignore_err",
+                    "-fflags", "+discardcorrupt",
                     "-i", video["path"],
                     *ffmpeg_args,
+                    "-max_error_rate", "1.0",
                     "-y",
                     out_path
                 ]
@@ -3194,19 +4041,66 @@ class VCDRipperApp(tk.Tk):
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        encoding="utf-8",
+                        errors="replace",
+                        env=get_subprocess_env(),
+                        creationflags=subprocess.CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
                     )
                     self._current_proc = proc
+                    set_low_process_priority(proc)
 
                     video_dur = video.get("duration", 0)
-                    # Stream FFmpeg output
-                    for line in proc.stdout:
-                        if self._cancel_requested:
+                    line_queue = queue.Queue()
+
+                    def read_stdout():
+                        try:
+                            for line in iter(proc.stdout.readline, ''):
+                                line_queue.put(line)
+                        except Exception:
+                            pass
+                        finally:
                             try:
-                                proc.terminate()
+                                proc.stdout.close()
                             except Exception:
                                 pass
+                            line_queue.put(None)
+
+                    reader_t = threading.Thread(target=read_stdout, daemon=True)
+                    reader_t.start()
+
+                    last_heartbeat = time.time()
+                    proc_timed_out = False
+
+                    while True:
+                        if self._cancel_requested:
+                            kill_process_tree(proc, force=True)
                             break
+
+                        try:
+                            line = line_queue.get(timeout=0.2)
+                        except queue.Empty:
+                            if proc.poll() is not None:
+                                while not line_queue.empty():
+                                    rem = line_queue.get_nowait()
+                                    if rem is None:
+                                        break
+                                break
+
+                            if (time.time() - last_heartbeat) > DISC_READ_TIMEOUT_SECONDS:
+                                proc_timed_out = True
+                                was_timed_out = True
+                                self.after(0, lambda v=video: self._log.log(
+                                    t('log.read_timeout').format(name=v['filename'], timeout=int(DISC_READ_TIMEOUT_SECONDS)),
+                                    "warning"
+                                ))
+                                terminate_and_kill(proc, graceful_timeout=GRACEFUL_TERMINATE_TIMEOUT)
+                                break
+                            continue
+
+                        if line is None:
+                            break
+
+                        last_heartbeat = time.time()
                         line = line.strip()
                         if line and ("frame=" in line or "speed=" in line):
                             self.after(0, lambda l=line: self._log.log(l, "info"))
@@ -3223,8 +4117,13 @@ class VCDRipperApp(tk.Tk):
                                     self._progress_pct.configure(text=f"{int(p)}%"),
                                     self._taskbar_progress.set_value(int(p), 100)
                                 ))
+                        elif any(err_kw in line.lower() for err_kw in ("error", "corrupt", "invalid")):
+                            self.after(0, lambda l=line: self._log.log(l, "warning"))
 
-                    proc.wait()
+                    try:
+                        proc.wait(timeout=2)
+                    except Exception:
+                        pass
                     self._current_proc = None
 
                     if self._cancel_requested:
@@ -3234,6 +4133,15 @@ class VCDRipperApp(tk.Tk):
                                 os.remove(out_path)
                             except Exception:
                                 pass
+                        break
+
+                    if proc_timed_out:
+                        # Preserve partially recovered video file
+                        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                            part_size = round(os.path.getsize(out_path) / 1024**2, 1)
+                            self.after(0, lambda n=out_name, s=part_size: self._log.log(
+                                t('log.saved_partial').format(name=n, size=s), "warning"
+                            ))
                         break
 
                     if proc.returncode == 0:
@@ -3257,15 +4165,34 @@ class VCDRipperApp(tk.Tk):
                     ))
 
         # Done
-        self.after(0, lambda: self._rip_done(total, success, errors, out_folder, was_cancelled or self._cancel_requested))
+        self.after(0, lambda: self._rip_done(
+            total, success, errors, out_folder,
+            cancelled=(was_cancelled or self._cancel_requested),
+            timed_out=was_timed_out
+        ))
 
-    def _rip_done(self, total, success, errors, out_folder, cancelled=False):
+    def _rip_done(self, total, success, errors, out_folder, cancelled=False, timed_out=False):
         self._ripping = False
         self._current_proc = None
         self._rip_btn.configure_state(True)
         self._stop_btn.configure_state(False)
+        if hasattr(self, "_clear_all_btn"):
+            self._clear_all_btn.configure(
+                state="normal",
+                fg=COLORS["text_secondary"],
+                cursor="hand2"
+            )
 
-        if cancelled:
+        if timed_out:
+            self._taskbar_progress.set_paused()
+            self._progress_lbl.configure(text=t('messageboxes.timeout_title'))
+            self._log.log(t('messageboxes.timeout_msg'), "warning")
+            messagebox.showwarning(
+                t('messageboxes.timeout_title'),
+                t('messageboxes.timeout_msg')
+            )
+            self._taskbar_progress.reset()
+        elif cancelled:
             self._taskbar_progress.reset()
             self._progress_lbl.configure(text=t('content.rip_prog_stop').format(success=success, total=total))
             self._log.log(t('log.stop_sum').format(success=success), "warning")
@@ -3333,6 +4260,162 @@ class VCDRipperApp(tk.Tk):
                 return "break"
             w = getattr(w, "master", None)
 
+    # ── Unsupported Disc Dialog ───────────────
+    def _show_unsupported_disc_dialog(self, drive_path, disc_type):
+        """Show modal dialog warning user that the detected disc is not a VCD."""
+        if getattr(self, "_unsupported_dlg_open", False):
+            return
+        self._unsupported_dlg_open = True
+
+        dlg = tk.Toplevel(self)
+        dlg.title(t('messageboxes.unsupported_disc_title'))
+        dlg.configure(bg=COLORS["bg_panel"])
+        dlg.resizable(False, False)
+        self._set_window_icon(dlg)
+
+        # Center dialog relative to main window
+        try:
+            self.update_idletasks()
+            w, h = scale_val(480), scale_val(240)
+            x = max(0, self.winfo_x() + (self.winfo_width() - w) // 2)
+            y = max(0, self.winfo_y() + (self.winfo_height() - h) // 2)
+            dlg.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            pass
+
+        dlg.grab_set()
+
+        def on_close():
+            self._unsupported_dlg_open = False
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
+
+        dlg.protocol("WM_DELETE_WINDOW", on_close)
+
+        content = tk.Frame(dlg, bg=COLORS["bg_panel"], padx=scale_val(24), pady=scale_val(20))
+        content.pack(fill="both", expand=True)
+
+        # Top row: warning icon + title & type badge
+        top_row = tk.Frame(content, bg=COLORS["bg_panel"])
+        top_row.pack(fill="x", pady=(0, scale_val(10)))
+
+        icon_lbl = tk.Label(
+            top_row, text="⚠", font=FONTS["title"],
+            bg=COLORS["bg_panel"], fg=COLORS["warning"]
+        )
+        icon_lbl.pack(side="left", padx=(0, scale_val(14)), anchor="n")
+
+        title_col = tk.Frame(top_row, bg=COLORS["bg_panel"])
+        title_col.pack(side="left", fill="x", expand=True)
+
+        t_lbl = tk.Label(
+            title_col, text=t('messageboxes.unsupported_disc_title'),
+            font=FONTS["subhead"], bg=COLORS["bg_panel"], fg=COLORS["text_primary"],
+            anchor="w"
+        )
+        t_lbl.pack(anchor="w")
+
+        clean_drive = drive_path.rstrip("\\") if drive_path else ""
+        badge_text = f"Drive: {clean_drive}  •  Format: {disc_type}"
+        badge_lbl = tk.Label(
+            title_col, text=badge_text,
+            font=FONTS["small"], bg=COLORS["accent_dim"], fg=COLORS["text_primary"],
+            padx=scale_val(8), pady=scale_val(2)
+        )
+        badge_lbl.pack(anchor="w", pady=(scale_val(4), 0))
+
+        # Message body
+        msg_lbl = tk.Label(
+            content, text=t('messageboxes.unsupported_disc_msg'),
+            font=FONTS["body"], bg=COLORS["bg_panel"], fg=COLORS["text_secondary"],
+            wraplength=scale_val(420), justify="left", anchor="w"
+        )
+        msg_lbl.pack(fill="x", pady=(0, 16))
+
+        # Button row
+        btn_row = tk.Frame(content, bg=COLORS["bg_panel"])
+        btn_row.pack(fill="x", side="bottom")
+
+        def do_eject():
+            on_close()
+            self._eject_disc(drive_path)
+
+        def do_ok():
+            on_close()
+
+        # Eject Disc button (accent color)
+        btn_eject = tk.Button(
+            btn_row, text=f"⏏  {t('messageboxes.btn_eject')}",
+            font=FONTS["body"], bg=COLORS["accent"],
+            fg=COLORS["text_primary"], relief="flat", bd=0,
+            padx=18, pady=7, cursor="hand2",
+            activebackground=COLORS["accent_hover"],
+            activeforeground=COLORS["text_primary"],
+            command=do_eject
+        )
+        btn_eject.pack(side="right", padx=(8, 0))
+
+        # OK button (card style)
+        btn_ok = tk.Button(
+            btn_row, text=t('messageboxes.btn_ok'),
+            font=FONTS["body"], bg=COLORS["bg_card"],
+            fg=COLORS["text_primary"], relief="flat", bd=0,
+            padx=20, pady=7, cursor="hand2",
+            activebackground=COLORS["bg_hover"],
+            activeforeground=COLORS["text_primary"],
+            command=do_ok
+        )
+        btn_ok.pack(side="right")
+
+        dlg.bind("<Return>", lambda e: do_ok())
+        dlg.bind("<Escape>", lambda e: do_ok())
+
+    def _clear_all_action(self):
+        """Clear loaded video files list and reset progress indicators."""
+        if self._ripping:
+            self._stop_rip()
+
+        self._videos.clear()
+        self._cards.clear()
+        self._selected_indices.clear()
+        self._batch_base_name = "Track"
+
+        self._clear_list()
+        if hasattr(self, "_empty_frame") and self._empty_frame.winfo_exists():
+            self._empty_frame.pack(fill="both", expand=True, pady=100)
+
+        self._video_count_badge.configure(text=t('content.badge_empty'))
+        self._sel_count_lbl.configure(
+            text=t('selection.count').format(n=0, total=0),
+            fg=COLORS["text_muted"]
+        )
+
+        # Reset main ripping progress
+        self._progress_var.set(0)
+        self._progress_lbl.configure(text="")
+        self._progress_pct.configure(text="")
+        self._progress_bar.pack_forget()
+
+        # Reset scan progress if active
+        if hasattr(self, "_scan_progress_var"):
+            self._scan_progress_var.set(0)
+        if hasattr(self, "_scan_progress_lbl"):
+            self._scan_progress_lbl.configure(text="")
+        if hasattr(self, "_scan_progress_pct"):
+            self._scan_progress_pct.configure(text="")
+        if hasattr(self, "_scan_progress_frame"):
+            self._scan_progress_frame.pack_forget()
+        if hasattr(self, "_scan_progress_bar"):
+            self._scan_progress_bar.pack_forget()
+
+        # Reset Windows taskbar progress
+        if hasattr(self, "_taskbar_progress"):
+            self._taskbar_progress.reset()
+
+        self._log.log(t('log.cleared_all'), "info")
+
     # ── Drive eject & Reset ───────────────────
     def _clear_disc_info(self):
         """Reset and clear all scanned disc tracks and drive info UI."""
@@ -3341,6 +4424,8 @@ class VCDRipperApp(tk.Tk):
         self._cards.clear()
         self._selected_indices.clear()
         self._vcd_path.set("")
+        self._batch_base_name = "Track"
+        self._last_non_vcd_drive = None
 
         self._clear_list()
         if hasattr(self, "_empty_frame") and self._empty_frame.winfo_exists():
@@ -3355,13 +4440,16 @@ class VCDRipperApp(tk.Tk):
 
         self._log.log(t('log.cleared'), "info")
 
-    def _eject_disc(self):
-        """Eject the VCD disc from the detected optical drive."""
+    def _eject_disc(self, drive_to_eject=None):
+        """Eject the disc from the detected or specified optical drive."""
+        if self._ripping:
+            self._stop_rip()
+
         # Determine drive letter
         drive_letter = None
-        vcd_path = self._vcd_path.get()
-        if vcd_path and len(vcd_path) >= 2 and vcd_path[1] == ':':
-            drive_letter = vcd_path[0].upper()
+        target = drive_to_eject or self._vcd_path.get()
+        if target and len(target) >= 2 and target[1] == ':':
+            drive_letter = target[0].upper()
         else:
             # Try to find an optical drive
             cd_drives = get_cd_drives()
@@ -3374,61 +4462,71 @@ class VCDRipperApp(tk.Tk):
         
         self._log.log(t('messageboxes.ejecting').format(drive=drive_letter), "info")
         
-        ejected = False
-        # Strategy 1: Win32 DeviceIoControl (most reliable)
-        try:
-            import ctypes
-            from ctypes import wintypes
-            GENERIC_READ = 0x80000000
-            FILE_SHARE_READ = 0x00000001
-            FILE_SHARE_WRITE = 0x00000002
-            OPEN_EXISTING = 3
-            IOCTL_STORAGE_EJECT_MEDIA = 0x2D4808
-            INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
-            
-            handle = ctypes.windll.kernel32.CreateFileW(
-                f"\\\\.\\{drive_letter}:",
-                GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                None, OPEN_EXISTING, 0, None
-            )
-            if handle != INVALID_HANDLE_VALUE:
-                bytes_returned = wintypes.DWORD(0)
-                result = ctypes.windll.kernel32.DeviceIoControl(
-                    handle, IOCTL_STORAGE_EJECT_MEDIA,
-                    None, 0, None, 0,
-                    ctypes.byref(bytes_returned), None
-                )
-                ctypes.windll.kernel32.CloseHandle(handle)
-                if result:
-                    ejected = True
-                    self._log.log(t('log.eject_win32').format(drive=drive_letter), "success")
-        except Exception as e:
-            self._log.log(t('log.eject_win32_fail').format(err=e), "warning")
-        
-        # Strategy 2: PowerShell Shell.Application COM
-        if not ejected:
+        def do_eject_bg():
+            ejected = False
+            # Strategy 1: Win32 DeviceIoControl (most reliable)
             try:
-                ps_cmd = (
-                    f"(New-Object -ComObject Shell.Application)"
-                    f".Namespace(17).ParseName('{drive_letter}:').InvokeVerb('Eject')"
+                import ctypes
+                from ctypes import wintypes
+                GENERIC_READ = 0x80000000
+                FILE_SHARE_READ = 0x00000001
+                FILE_SHARE_WRITE = 0x00000002
+                OPEN_EXISTING = 3
+                IOCTL_STORAGE_EJECT_MEDIA = 0x2D4808
+                INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+                
+                handle = ctypes.windll.kernel32.CreateFileW(
+                    f"\\\\.\\{drive_letter}:",
+                    GENERIC_READ,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    None, OPEN_EXISTING, 0, None
                 )
-                subprocess.Popen(
-                    ["powershell", "-NoProfile", "-NonInteractive",
-                     "-Command", ps_cmd],
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-                ejected = True
-                self._log.log(t('log.eject_ps').format(drive=drive_letter), "success")
+                if handle != INVALID_HANDLE_VALUE:
+                    bytes_returned = wintypes.DWORD(0)
+                    result = ctypes.windll.kernel32.DeviceIoControl(
+                        handle, IOCTL_STORAGE_EJECT_MEDIA,
+                        None, 0, None, 0,
+                        ctypes.byref(bytes_returned), None
+                    )
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    if result:
+                        ejected = True
+                        self.after(0, lambda: self._log.log(t('log.eject_win32').format(drive=drive_letter), "success"))
             except Exception as e:
-                self._log.log(t('log.eject_ps_fail').format(err=e), "error")
-                messagebox.showwarning(
-                    t('messageboxes.eject_fail_title'),
-                    t('messageboxes.eject_fail_msg').format(drive=drive_letter, err=e)
-                )
-        
-        # Always clear disc info
-        self._clear_disc_info()
+                self.after(0, lambda err=e: self._log.log(t('log.eject_win32_fail').format(err=err), "warning"))
+            
+            # Strategy 2: PowerShell Shell.Application COM
+            if not ejected:
+                try:
+                    ps_cmd = (
+                        f"(New-Object -ComObject Shell.Application)"
+                        f".Namespace(17).ParseName('{drive_letter}:').InvokeVerb('Eject')"
+                    )
+                    proc = subprocess.run(
+                        ["powershell", "-NoProfile", "-NonInteractive",
+                         "-Command", ps_cmd],
+                        env=get_subprocess_env(),
+                        capture_output=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    if proc.returncode == 0:
+                        ejected = True
+                        self.after(0, lambda: self._log.log(t('log.eject_ps').format(drive=drive_letter), "success"))
+                    else:
+                        raise RuntimeError(proc.stderr.strip() if proc.stderr else "Eject verb failed")
+                except Exception as e:
+                    self.after(0, lambda err=e: (
+                        self._log.log(t('log.eject_ps_fail').format(err=err), "error"),
+                        messagebox.showwarning(
+                            t('messageboxes.eject_fail_title'),
+                            t('messageboxes.eject_fail_msg').format(drive=drive_letter, err=err)
+                        )
+                    ))
+            
+            # Always clear disc info and reset non-VCD state on UI thread
+            self.after(0, self._clear_disc_info)
+
+        threading.Thread(target=do_eject_bg, daemon=True).start()
 
     def _set_window_icon(self, window):
         """Set app icon on a Tk or Toplevel window (supports .ico and .png fallback) and sync title bar dark mode."""
@@ -3478,7 +4576,7 @@ class VCDRipperApp(tk.Tk):
         dlg = tk.Toplevel(self)
         dlg.title(t('batch.title'))
         dlg.configure(bg=COLORS["bg_panel"])
-        dlg.geometry("650x600")
+        dlg.geometry(f"{scale_val(650)}x{scale_val(600)}")
         self._set_window_icon(dlg)
         dlg.grab_set()
 
@@ -3665,7 +4763,7 @@ class VCDRipperApp(tk.Tk):
 
         def apply_all():
             if seq_enabled.get():
-                base = base_var.get()
+                base = base_var.get().strip()
                 try:
                     start_idx = int(start_var.get())
                 except ValueError:
@@ -3675,21 +4773,23 @@ class VCDRipperApp(tk.Tk):
                     num = str(start_idx + i).zfill(pw)
                     suffix = suffix_vars[i].get().strip()
                     if base and suffix:
-                        new_stem = f"{base} {num} - {suffix}"
+                        raw_stem = f"{base} {num} - {suffix}"
                     elif base:
-                        new_stem = f"{base} {num}"
+                        raw_stem = f"{base} {num}"
                     elif suffix:
-                        new_stem = f"{num} - {suffix}"
+                        raw_stem = f"{num} - {suffix}"
                     else:
-                        new_stem = num
+                        raw_stem = num
+                    new_stem = sanitize_filename(raw_stem, fallback=f"Track_{num}")
                     if i < len(self._videos):
                         self._videos[i]["custom_stem"] = new_stem
                         if i < len(self._cards):
                             self._cards[i]._filename_lbl.configure(text=f"📼  {new_stem}")
             else:
                 for i, var in enumerate(entry_vars):
-                    new_stem = var.get().strip()
-                    if new_stem and i < len(self._videos):
+                    raw_stem = var.get().strip()
+                    if raw_stem and i < len(self._videos):
+                        new_stem = sanitize_filename(raw_stem, fallback=f"Track_{i+1}")
                         self._videos[i]["custom_stem"] = new_stem
                         if i < len(self._cards):
                             self._cards[i]._filename_lbl.configure(text=f"📼  {new_stem}")
@@ -3735,6 +4835,10 @@ class VCDRipperApp(tk.Tk):
         self.title(f"{t('header.title')}  v{APP_VERSION}")
         self._title_lbl.configure(text=t('header.title'))
         self._console_btn.configure(text=t('header.console'))
+        if hasattr(self, "_clear_all_btn"):
+            self._clear_all_btn.configure(text=t('header.clear_all'))
+        if hasattr(self, "_clear_all_tip"):
+            self._clear_all_tip.text = t('header.clear_all_tip')
         self._about_btn.configure(text=t('header.about'))
         self._batch_rename_btn.configure(text=t('header.batch_rename'))
         self._eject_btn.configure(text=t('header.eject_disc'))
@@ -3809,6 +4913,7 @@ class VCDRipperApp(tk.Tk):
         self._log_window.destroy()
         if self._poll_job:
             self.after_cancel(self._poll_job)
+        release_single_instance_lock()
         self.destroy()
 
 
@@ -3816,6 +4921,11 @@ class VCDRipperApp(tk.Tk):
 #  Entry point
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
+    # Single-instance lock check — executed before initializing heavy GUI
+    if not acquire_single_instance_lock():
+        activate_existing_window()
+        sys.exit(0)
+
     app = VCDRipperApp()
     app.protocol("WM_DELETE_WINDOW", app.on_close)
     app.mainloop()

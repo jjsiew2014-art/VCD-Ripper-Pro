@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-6C63FF?style=flat-square"/>
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.0-6C63FF?style=flat-square"/>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square"/>
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22C55E?style=flat-square"/>
   <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-F59E0B?style=flat-square"/>
@@ -26,24 +26,18 @@
 | 🎞 **Video Conversion** | Convert to **MPG**, **MP4** (H.264+AAC), or **MOV** using FFmpeg |
 | 📐 **1440×1080 Upscale** | When exporting to MP4 or MOV, optionally upscale to **1440×1080** (4:3 at 1080p) using Lanczos — ideal for VCD's low-res 352×240 source |
 | 🎵 **Audio Only Mode** | Extract audio as **WAV** (lossless) or **MP3** (compressed) |
-<<<<<<< HEAD
 | ✏ **File Rename** | Rename output files before ripping via an inline rename dialog |
 | ✏ **Batch Rename** | Rename all output files at once via a dedicated batch rename dialog |
-| 🔄 **Auto-Scan** | Automatically scans for VCD tracks when a disc is inserted — no manual scan needed |
+| 🔄 **Auto-Scan & Verification** | Auto-detects VCD discs and blocks non-VCD formats (Audio CD/DVD) with friendly warnings |
+| 🛡 **Damaged Disc Tolerance** | 20s watchdog heartbeat, process tree force kill, and graceful recovery of partial video for scratched discs |
+| 🔒 **Single-Instance Lock** | System-level mutex prevents duplicate instances and restores/focuses existing window on double click |
 | ☑ **Batch Selection** | Select all / none with one click; defaults to all-selected after scan |
-| ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
+| ⏹ **Stop Anytime** | Cancel an in-progress rip at any time with instant process termination |
 | 📋 **Console Log** | Live log of every operation with timestamps |
-| ⏏ **Eject Disc** | Eject button in the header bar; auto-detects drive letter with multi-strategy eject for broad Windows compatibility |
+| ⏏ **Eject Disc** | Non-blocking Eject button with Win32 DeviceIoControl & PowerShell multi-strategy ejection |
 | 📂 **Auto-Open Folder** | Option to automatically open output folder after ripping completes |
 | 📊 **Taskbar Progress** | Real-time Rip progress bar on Windows taskbar icon (green for in-progress, yellow for stopped, red for errors) |
 | 🌓 **Appearance Themes** | Switch between **System** (auto-detects Windows dark/light theme), **Light Mode**, and **Dark Mode** |
-=======
-| ✏ **File Rename** | Rename output files before ripping |
-| ☑ **Batch Selection** | Select all / none with one click |
-| ⏹ **Stop Anytime** | Cancel an in-progress rip at any time |
-| 📋 **Console Log** | Live log of every operation with timestamps |
-| 💿 **Auto Disc Eject** | After ripping completes, prompts to automatically eject the physical disc |
->>>>>>> 73ff13405d1798fcf7368adc67fb04ca0848509c
 | 💾 **Portable** | No installation required — run from any folder on any Windows PC |
 
 ---
