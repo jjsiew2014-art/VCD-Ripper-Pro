@@ -1894,6 +1894,12 @@ class VCDRipperApp(tk.Tk):
         except Exception:
             pass
 
+        # Explicit AppUserModelID so Windows taskbar uses CompactDisc.ico
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jjsiew.vcdripperpro.1.3.0")
+        except Exception:
+            pass
+
         # Apply fonts and window scale
         apply_font_scale(self, i18n.get_scale_factor())
         self._apply_window_scale()
@@ -1936,6 +1942,15 @@ class VCDRipperApp(tk.Tk):
         self._build_ui()
         self._apply_ttk_styles()
         self._start_drive_poll()
+
+        # App icon — multi-resolution CompactDisc.ico
+        self._set_window_icon(self)
+
+        # Global MouseWheel scroll dispatcher
+        self.bind_all("<MouseWheel>", self._on_global_mousewheel)
+
+        if not self._ffmpeg:
+            self._show_ffmpeg_warning()
 
     def _apply_window_scale(self):
         s = i18n.get_scale_factor()
@@ -4529,41 +4544,94 @@ class VCDRipperApp(tk.Tk):
         threading.Thread(target=do_eject_bg, daemon=True).start()
 
     def _set_window_icon(self, window):
-        """Set app icon on a Tk or Toplevel window (supports .ico and .png fallback) and sync title bar dark mode."""
+        """Set app icon on a Tk or Toplevel window using the multi-resolution CompactDisc.ico and sync title bar dark mode."""
         global _APP_ICON_PHOTO, _APP_ICON_ICO_PATH
         try:
             hwnd = ctypes.windll.user32.GetAncestor(window.winfo_id(), 2) or window.winfo_id()
             set_window_dark_mode(hwnd, i18n.get_effective_theme() == "dark")
         except Exception:
             pass
+
         try:
-            _base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
             if _APP_ICON_ICO_PATH is None:
-                _ico = os.path.join(_base, "CompactDisc.ico")
-                _APP_ICON_ICO_PATH = _ico if os.path.isfile(_ico) else False
+                candidates = []
+                if getattr(sys, "_MEIPASS", None):
+                    candidates.append(os.path.join(sys._MEIPASS, "CompactDisc.ico"))
+                base_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+                exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else base_dir
+                candidates.append(os.path.join(exe_dir, "CompactDisc.ico"))
+                candidates.append(os.path.join(exe_dir, "_internal", "CompactDisc.ico"))
+                candidates.append(os.path.join(base_dir, "CompactDisc.ico"))
+                candidates.append(os.path.abspath("CompactDisc.ico"))
+                for c in candidates:
+                    if c and os.path.isfile(c):
+                        _APP_ICON_ICO_PATH = os.path.abspath(c)
+                        break
+                else:
+                    _APP_ICON_ICO_PATH = False
+
+            ico_applied = False
             if _APP_ICON_ICO_PATH:
                 try:
-                    window.iconbitmap(_APP_ICON_ICO_PATH)
+                    if isinstance(window, tk.Tk):
+                        window.iconbitmap(default=_APP_ICON_ICO_PATH)
+                    else:
+                        window.iconbitmap(_APP_ICON_ICO_PATH)
+                    ico_applied = True
                 except Exception:
                     pass
-            if _APP_ICON_PHOTO is None:
-                _png = os.path.join(_base, "CompactDisc.png")
-                if not os.path.isfile(_png):
-                    _png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CompactDisc.png")
-                if os.path.isfile(_png):
-                    try:
-                        from PIL import Image, ImageTk
-                        _APP_ICON_PHOTO = ImageTk.PhotoImage(Image.open(_png))
-                    except Exception:
-                        _APP_ICON_PHOTO = False
-                else:
-                    _APP_ICON_PHOTO = False
-            if _APP_ICON_PHOTO:
+
                 try:
-                    window.iconphoto(False, _APP_ICON_PHOTO)
-                    window._icon_photo_ref = _APP_ICON_PHOTO
+                    hwnd = ctypes.windll.user32.GetAncestor(window.winfo_id(), 2) or window.winfo_id()
+                    IMAGE_ICON = 1
+                    LR_LOADFROMFILE = 0x00000010
+                    LR_DEFAULTSIZE = 0x00000040
+                    WM_SETICON = 0x0080
+                    ICON_SMALL = 0
+                    ICON_BIG = 1
+
+                    # Load large icon (32x32 / 48x48) for Alt-Tab and Taskbar
+                    hicon_big = ctypes.windll.user32.LoadImageW(
+                        None, _APP_ICON_ICO_PATH, IMAGE_ICON, 0, 0,
+                        LR_LOADFROMFILE | LR_DEFAULTSIZE
+                    )
+                    if hicon_big:
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
+
+                    # Load small icon (16x16) for Title bar
+                    cx_sm = ctypes.windll.user32.GetSystemMetrics(49) or 16
+                    cy_sm = ctypes.windll.user32.GetSystemMetrics(50) or 16
+                    hicon_sm = ctypes.windll.user32.LoadImageW(
+                        None, _APP_ICON_ICO_PATH, IMAGE_ICON, cx_sm, cy_sm,
+                        LR_LOADFROMFILE
+                    )
+                    if hicon_sm:
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_sm)
+                    ico_applied = True
                 except Exception:
                     pass
+
+            # Only fallback to PNG iconphoto if ICO could not be loaded
+            if not ico_applied:
+                if _APP_ICON_PHOTO is None:
+                    _base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+                    _png = os.path.join(_base, "CompactDisc.png")
+                    if not os.path.isfile(_png):
+                        _png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CompactDisc.png")
+                    if os.path.isfile(_png):
+                        try:
+                            from PIL import Image, ImageTk
+                            _APP_ICON_PHOTO = ImageTk.PhotoImage(Image.open(_png))
+                        except Exception:
+                            _APP_ICON_PHOTO = False
+                    else:
+                        _APP_ICON_PHOTO = False
+                if _APP_ICON_PHOTO:
+                    try:
+                        window.iconphoto(False, _APP_ICON_PHOTO)
+                        window._icon_photo_ref = _APP_ICON_PHOTO
+                    except Exception:
+                        pass
         except Exception:
             pass
 
