@@ -740,16 +740,31 @@ _APP_ICON_PHOTO = None
 _APP_ICON_ICO_PATH = None
 _HEADER_ICONS = {}
 
+def _find_asset_path(filename):
+    """Find path to an asset file in source or frozen PyInstaller environment."""
+    candidates = []
+    if getattr(sys, "_MEIPASS", None):
+        candidates.append(os.path.join(sys._MEIPASS, filename))
+    base_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else base_dir
+    candidates.append(os.path.join(exe_dir, filename))
+    candidates.append(os.path.join(exe_dir, "_internal", filename))
+    candidates.append(os.path.join(base_dir, filename))
+    candidates.append(os.path.abspath(filename))
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return os.path.abspath(c)
+    return None
+
 def get_header_icon(size=64):
+    size = int(round(size))
     if size not in _HEADER_ICONS:
         try:
             from PIL import Image, ImageTk
-            _base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
-            _png = os.path.join(_base, "CompactDisc.png")
-            if not os.path.isfile(_png):
-                _png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CompactDisc.png")
-            if os.path.isfile(_png):
-                img = Image.open(_png).convert("RGBA").resize((size, size), Image.LANCZOS)
+            png_path = _find_asset_path("CompactDisc.png")
+            if png_path and os.path.isfile(png_path):
+                resample_filter = getattr(Image, "Resampling", Image).LANCZOS
+                img = Image.open(png_path).convert("RGBA").resize((size, size), resample_filter)
                 _HEADER_ICONS[size] = ImageTk.PhotoImage(img)
             else:
                 _HEADER_ICONS[size] = False
@@ -759,6 +774,119 @@ def get_header_icon(size=64):
 
 def _get_header_icon_64():
     return get_header_icon(scale_val(64))
+
+def set_window_icon(window):
+    """Set app icon on a Tk or Toplevel window using the multi-resolution CompactDisc.ico,
+    PNG iconphoto, and Win32 WM_SETICON + SetClassLongPtrW to completely replace the Tk feather icon."""
+    global _APP_ICON_PHOTO, _APP_ICON_ICO_PATH
+    if window is None:
+        return
+
+    # Ensure window is mapped and has an HWND
+    try:
+        window.update_idletasks()
+    except Exception:
+        pass
+
+    # Discover CompactDisc.ico
+    if _APP_ICON_ICO_PATH is None:
+        p = _find_asset_path("CompactDisc.ico")
+        _APP_ICON_ICO_PATH = p if p else False
+
+    # Discover CompactDisc.png
+    if _APP_ICON_PHOTO is None:
+        png_path = _find_asset_path("CompactDisc.png")
+        if png_path and os.path.isfile(png_path):
+            try:
+                from PIL import Image, ImageTk
+                _APP_ICON_PHOTO = ImageTk.PhotoImage(Image.open(png_path))
+            except Exception:
+                _APP_ICON_PHOTO = False
+        else:
+            _APP_ICON_PHOTO = False
+
+    # 1. Tkinter iconbitmap - sets on THIS window and sets default for future toplevels
+    if _APP_ICON_ICO_PATH and os.path.isfile(_APP_ICON_ICO_PATH):
+        try:
+            window.iconbitmap(_APP_ICON_ICO_PATH)
+        except Exception:
+            pass
+        try:
+            window.iconbitmap(default=_APP_ICON_ICO_PATH)
+        except Exception:
+            pass
+
+    # 2. Tkinter iconphoto (replaces Tk default feather icon across interpreter)
+    if _APP_ICON_PHOTO:
+        try:
+            window.iconphoto(True, _APP_ICON_PHOTO)
+            window._icon_photo_ref = _APP_ICON_PHOTO
+        except Exception:
+            pass
+
+    # 3. Windows Native Win32 API enforcement (DWM title bar & taskbar)
+    if sys.platform == "win32":
+        try:
+            win_id = window.winfo_id()
+            top_hwnd = ctypes.windll.user32.GetAncestor(win_id, 2) or win_id
+
+            # Title bar dark mode sync
+            set_window_dark_mode(top_hwnd, i18n.get_effective_theme() == "dark")
+
+            if _APP_ICON_ICO_PATH and os.path.isfile(_APP_ICON_ICO_PATH):
+                IMAGE_ICON = 1
+                LR_LOADFROMFILE = 0x00000010
+                LR_DEFAULTSIZE = 0x00000040
+                WM_SETICON = 0x0080
+                ICON_SMALL = 0
+                ICON_BIG = 1
+                GCLP_HICON = -14
+                GCLP_HICONSM = -34
+
+                # Get Windows system metric icon sizes (typically 16x16 and 32x32, or scaled with DPI)
+                cx_sm = ctypes.windll.user32.GetSystemMetrics(49) or 16
+                cy_sm = ctypes.windll.user32.GetSystemMetrics(50) or 16
+                cx_lg = ctypes.windll.user32.GetSystemMetrics(11) or 32
+                cy_lg = ctypes.windll.user32.GetSystemMetrics(12) or 32
+
+                hicon_sm = ctypes.windll.user32.LoadImageW(
+                    None, _APP_ICON_ICO_PATH, IMAGE_ICON, cx_sm, cy_sm,
+                    LR_LOADFROMFILE
+                )
+                hicon_big = ctypes.windll.user32.LoadImageW(
+                    None, _APP_ICON_ICO_PATH, IMAGE_ICON, cx_lg, cy_lg,
+                    LR_LOADFROMFILE
+                )
+                if not hicon_big:
+                    hicon_big = ctypes.windll.user32.LoadImageW(
+                        None, _APP_ICON_ICO_PATH, IMAGE_ICON, 0, 0,
+                        LR_LOADFROMFILE | LR_DEFAULTSIZE
+                    )
+
+                for h in (top_hwnd, win_id):
+                    if not h:
+                        continue
+                    if hicon_sm:
+                        ctypes.windll.user32.SendMessageW(h, WM_SETICON, ICON_SMALL, hicon_sm)
+                        try:
+                            ctypes.windll.user32.SetClassLongPtrW(h, GCLP_HICONSM, hicon_sm)
+                        except Exception:
+                            try:
+                                ctypes.windll.user32.SetClassLongW(h, GCLP_HICONSM, hicon_sm)
+                            except Exception:
+                                pass
+                    if hicon_big:
+                        ctypes.windll.user32.SendMessageW(h, WM_SETICON, ICON_BIG, hicon_big)
+                        try:
+                            ctypes.windll.user32.SetClassLongPtrW(h, GCLP_HICON, hicon_big)
+                        except Exception:
+                            try:
+                                ctypes.windll.user32.SetClassLongW(h, GCLP_HICON, hicon_big)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+
 
 
 
@@ -1646,6 +1774,7 @@ class VideoCard(tk.Frame):
         dlg.title(t("rename.title"))
         dlg.configure(bg=COLORS["bg_panel"])
         dlg.resizable(False, False)
+        set_window_icon(dlg)
         dlg.grab_set()
 
         stem = Path(self.info["filename"]).stem
@@ -1945,6 +2074,8 @@ class VCDRipperApp(tk.Tk):
 
         # App icon — multi-resolution CompactDisc.ico
         self._set_window_icon(self)
+        self.after(50, lambda: self._set_window_icon(self))
+        self.after(200, lambda: self._set_window_icon(self))
 
         # Global MouseWheel scroll dispatcher
         self.bind_all("<MouseWheel>", self._on_global_mousewheel)
@@ -1970,6 +2101,7 @@ class VCDRipperApp(tk.Tk):
 
         # App icon — works for both plain Python and PyInstaller onedir
         self._set_window_icon(self)
+        self.after(50, lambda: self._set_window_icon(self))
 
         # Global MouseWheel scroll dispatcher
         self.bind_all("<MouseWheel>", self._on_global_mousewheel)
@@ -1995,6 +2127,8 @@ class VCDRipperApp(tk.Tk):
         # 3. Header bar
         if hasattr(self, "_header"):
             self._header.configure(bg=COLORS["bg_panel"])
+        if hasattr(self, "_logo_lbl") and self._logo_lbl:
+            self._logo_lbl.configure(bg=COLORS["bg_panel"])
         if hasattr(self, "_title_lbl"):
             self._title_lbl.configure(bg=COLORS["bg_panel"], fg=COLORS["text_primary"])
         if hasattr(self, "_version_lbl"):
@@ -2340,12 +2474,26 @@ class VCDRipperApp(tk.Tk):
         self._header.pack_propagate(False)
         header = self._header
 
-        self._title_lbl = tk.Label(
-            header, text=t('header.title'),
-            font=FONTS["title"], bg=COLORS["bg_panel"],
-            fg=COLORS["text_primary"]
-        )
-        self._title_lbl.pack(side="left", padx=scale_val(28), pady=0)
+        # Software logo on the left of title
+        header_icon = get_header_icon(scale_val(32))
+        if header_icon:
+            self._logo_lbl = tk.Label(header, image=header_icon, bg=COLORS["bg_panel"])
+            self._logo_lbl.image = header_icon
+            self._logo_lbl.pack(side="left", padx=(scale_val(24), scale_val(10)), pady=0)
+            self._title_lbl = tk.Label(
+                header, text=t('header.title'),
+                font=FONTS["title"], bg=COLORS["bg_panel"],
+                fg=COLORS["text_primary"]
+            )
+            self._title_lbl.pack(side="left", padx=(0, scale_val(12)), pady=0)
+        else:
+            self._logo_lbl = None
+            self._title_lbl = tk.Label(
+                header, text=t('header.title'),
+                font=FONTS["title"], bg=COLORS["bg_panel"],
+                fg=COLORS["text_primary"]
+            )
+            self._title_lbl.pack(side="left", padx=scale_val(28), pady=0)
 
         self._version_lbl = tk.Label(
             header, text=f"v{APP_VERSION}",
@@ -4545,95 +4693,7 @@ class VCDRipperApp(tk.Tk):
 
     def _set_window_icon(self, window):
         """Set app icon on a Tk or Toplevel window using the multi-resolution CompactDisc.ico and sync title bar dark mode."""
-        global _APP_ICON_PHOTO, _APP_ICON_ICO_PATH
-        try:
-            hwnd = ctypes.windll.user32.GetAncestor(window.winfo_id(), 2) or window.winfo_id()
-            set_window_dark_mode(hwnd, i18n.get_effective_theme() == "dark")
-        except Exception:
-            pass
-
-        try:
-            if _APP_ICON_ICO_PATH is None:
-                candidates = []
-                if getattr(sys, "_MEIPASS", None):
-                    candidates.append(os.path.join(sys._MEIPASS, "CompactDisc.ico"))
-                base_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-                exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else base_dir
-                candidates.append(os.path.join(exe_dir, "CompactDisc.ico"))
-                candidates.append(os.path.join(exe_dir, "_internal", "CompactDisc.ico"))
-                candidates.append(os.path.join(base_dir, "CompactDisc.ico"))
-                candidates.append(os.path.abspath("CompactDisc.ico"))
-                for c in candidates:
-                    if c and os.path.isfile(c):
-                        _APP_ICON_ICO_PATH = os.path.abspath(c)
-                        break
-                else:
-                    _APP_ICON_ICO_PATH = False
-
-            ico_applied = False
-            if _APP_ICON_ICO_PATH:
-                try:
-                    if isinstance(window, tk.Tk):
-                        window.iconbitmap(default=_APP_ICON_ICO_PATH)
-                    else:
-                        window.iconbitmap(_APP_ICON_ICO_PATH)
-                    ico_applied = True
-                except Exception:
-                    pass
-
-                try:
-                    hwnd = ctypes.windll.user32.GetAncestor(window.winfo_id(), 2) or window.winfo_id()
-                    IMAGE_ICON = 1
-                    LR_LOADFROMFILE = 0x00000010
-                    LR_DEFAULTSIZE = 0x00000040
-                    WM_SETICON = 0x0080
-                    ICON_SMALL = 0
-                    ICON_BIG = 1
-
-                    # Load large icon (32x32 / 48x48) for Alt-Tab and Taskbar
-                    hicon_big = ctypes.windll.user32.LoadImageW(
-                        None, _APP_ICON_ICO_PATH, IMAGE_ICON, 0, 0,
-                        LR_LOADFROMFILE | LR_DEFAULTSIZE
-                    )
-                    if hicon_big:
-                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
-
-                    # Load small icon (16x16) for Title bar
-                    cx_sm = ctypes.windll.user32.GetSystemMetrics(49) or 16
-                    cy_sm = ctypes.windll.user32.GetSystemMetrics(50) or 16
-                    hicon_sm = ctypes.windll.user32.LoadImageW(
-                        None, _APP_ICON_ICO_PATH, IMAGE_ICON, cx_sm, cy_sm,
-                        LR_LOADFROMFILE
-                    )
-                    if hicon_sm:
-                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_sm)
-                    ico_applied = True
-                except Exception:
-                    pass
-
-            # Only fallback to PNG iconphoto if ICO could not be loaded
-            if not ico_applied:
-                if _APP_ICON_PHOTO is None:
-                    _base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
-                    _png = os.path.join(_base, "CompactDisc.png")
-                    if not os.path.isfile(_png):
-                        _png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CompactDisc.png")
-                    if os.path.isfile(_png):
-                        try:
-                            from PIL import Image, ImageTk
-                            _APP_ICON_PHOTO = ImageTk.PhotoImage(Image.open(_png))
-                        except Exception:
-                            _APP_ICON_PHOTO = False
-                    else:
-                        _APP_ICON_PHOTO = False
-                if _APP_ICON_PHOTO:
-                    try:
-                        window.iconphoto(False, _APP_ICON_PHOTO)
-                        window._icon_photo_ref = _APP_ICON_PHOTO
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        set_window_icon(window)
 
     def _batch_rename(self):
         """Open a batch rename dialog for all scanned files."""
